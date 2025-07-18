@@ -74,5 +74,9 @@ def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
 
     return bloques
 
-# USO
-procesar_audio_con_pausas("1_2025-07-17_21-00-08.mp4")
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) != 2:
+        print("Uso: python generador_audio.py <video.mp4>")
+    else:
+        procesar_audio_con_pausas(sys.argv[1])
