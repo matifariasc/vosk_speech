@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timedelta
+from time import perf_counter
 from typing import Dict, List
 
 
@@ -28,6 +29,7 @@ from generador_audio import (
 
 
 REGISTRO = "transcripciones.json"
+REGISTRO_TIEMPOS = "tiempos_procesamiento.json"
 
 
 def cargar_registro(ruta: str) -> Dict[str, List[dict]]:
@@ -44,6 +46,22 @@ def guardar_registro(registro: Dict[str, List[dict]], ruta: str) -> None:
 
     with open(ruta, "w", encoding="utf-8") as fh:
         json.dump(registro, fh, ensure_ascii=False, indent=2)
+
+
+def cargar_tiempos(ruta: str) -> Dict[str, float]:
+    """Carga el registro de tiempos de procesamiento si existe."""
+
+    if os.path.exists(ruta):
+        with open(ruta, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    return {}
+
+
+def guardar_tiempos(tiempos: Dict[str, float], ruta: str) -> None:
+    """Guarda el registro de tiempos de procesamiento."""
+
+    with open(ruta, "w", encoding="utf-8") as fh:
+        json.dump(tiempos, fh, ensure_ascii=False, indent=2)
 
 
 
@@ -81,12 +99,18 @@ def obtener_pendientes(carpeta: str, procesados: Dict[str, List[dict]]) -> list[
 
 def main(carpeta: str) -> None:
     registro = cargar_registro(REGISTRO)
+    tiempos = cargar_tiempos(REGISTRO_TIEMPOS)
     pendientes = obtener_pendientes(carpeta, registro)
 
     for archivo in pendientes:
+        inicio = perf_counter()
         bloques = procesar_audio_con_pausas(archivo)
+        duracion = perf_counter() - inicio
         registro[archivo] = bloques
+        tiempos[archivo] = duracion
         guardar_registro(registro, REGISTRO)
+        guardar_tiempos(tiempos, REGISTRO_TIEMPOS)
+        print(f"Procesamiento de {archivo} completado en {duracion:.2f} segundos")
 
 
 if __name__ == "__main__":
