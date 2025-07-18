@@ -1,14 +1,15 @@
-"""Procesa multiples videos generando un archivo JSON con las transcripciones.
+"""Procesa múltiples videos generando un archivo JSON con las transcripciones.
 
-El script recorre una carpeta que contiene archivos MP4 con un nombre de la forma
-```
-<id>_YYYY-MM-DD_HH-MM-SS.mp4
-```
-y utiliza ``generador_audio.procesar_audio_con_pausas`` para obtener el texto
-de cada uno. Los resultados se guardan en ``transcripciones.json``. Si una
-entrada ya existe en el JSON, el video no se vuelve a procesar. Solo se
-procesaran archivos cuya hora se encuentre dentro de las primeras 24 horas a
-partir del primer archivo pendiente encontrado.
+El script recorre una carpeta que contiene archivos MP4 con un nombre de la
+forma::
+
+   <id>_YYYY-MM-DD_HH-MM-SS.mp4
+
+Para cada archivo se invoca ``generador_audio.procesar_audio_con_pausas`` y se
+almacena la lista de bloques devuelta. El resultado completo se guarda en
+``transcripciones.json``. Si una entrada ya existe en el JSON, el video no se
+vuelve a procesar. Solo se procesan archivos cuya hora se encuentre dentro de
+las primeras 24 horas a partir del primer archivo pendiente encontrado.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timedelta
-from typing import Dict
+from typing import Dict, List
 
 
 from generador_audio import (
@@ -29,7 +30,7 @@ from generador_audio import (
 REGISTRO = "transcripciones.json"
 
 
-def cargar_registro(ruta: str) -> Dict[str, str]:
+def cargar_registro(ruta: str) -> Dict[str, List[dict]]:
     """Carga el archivo JSON de registro si existe."""
 
     if os.path.exists(ruta):
@@ -38,7 +39,7 @@ def cargar_registro(ruta: str) -> Dict[str, str]:
     return {}
 
 
-def guardar_registro(registro: Dict[str, str], ruta: str) -> None:
+def guardar_registro(registro: Dict[str, List[dict]], ruta: str) -> None:
     """Guarda el registro de transcripciones a disco."""
 
     with open(ruta, "w", encoding="utf-8") as fh:
@@ -56,7 +57,7 @@ def formatear_bloques(bloques: list[dict]) -> str:
 
 
 
-def obtener_pendientes(carpeta: str, procesados: Dict[str, str]) -> list[str]:
+def obtener_pendientes(carpeta: str, procesados: Dict[str, List[dict]]) -> list[str]:
     """Devuelve la lista de archivos pendientes a procesar."""
 
     todos = [os.path.join(carpeta, f) for f in os.listdir(carpeta) if f.endswith(".mp4")]
@@ -84,10 +85,7 @@ def main(carpeta: str) -> None:
 
     for archivo in pendientes:
         bloques = procesar_audio_con_pausas(archivo)
-
-        texto = formatear_bloques(bloques)
-
-        registro[archivo] = texto
+        registro[archivo] = bloques
         guardar_registro(registro, REGISTRO)
 
 
