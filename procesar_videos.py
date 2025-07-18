@@ -18,10 +18,12 @@ import os
 from datetime import datetime, timedelta
 from typing import Dict
 
+
 from generador_audio import (
     procesar_audio_con_pausas,
     extraer_hora_desde_nombre,
 )
+
 
 
 REGISTRO = "transcripciones.json"
@@ -43,6 +45,7 @@ def guardar_registro(registro: Dict[str, str], ruta: str) -> None:
         json.dump(registro, fh, ensure_ascii=False, indent=2)
 
 
+
 def formatear_bloques(bloques: list[dict]) -> str:
     """Convierte la lista de bloques en texto con marcas de tiempo."""
 
@@ -50,6 +53,7 @@ def formatear_bloques(bloques: list[dict]) -> str:
     for b in bloques:
         lineas.append(f"[{b['inicio']} - {b['fin']}] {b['texto']}")
     return "\n".join(lineas)
+
 
 
 def obtener_pendientes(carpeta: str, procesados: Dict[str, str]) -> list[str]:
@@ -80,7 +84,9 @@ def main(carpeta: str) -> None:
 
     for archivo in pendientes:
         bloques = procesar_audio_con_pausas(archivo)
+
         texto = formatear_bloques(bloques)
+
         registro[archivo] = texto
         guardar_registro(registro, REGISTRO)
 
