@@ -1,0 +1,10 @@
+# Ignorar archivos temporales y modelo Vosk
+temp.wav
+vosk-model-es-0.42/
+model/
+*.mp4
+*.wav
+*.json
+*.csv
+__pycache__/
+*.pyc
