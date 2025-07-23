@@ -9,6 +9,8 @@ the keys `inicio`, `fin`, `fecha`, `texto` and `medio`.
 1. Generate transcriptions using `procesar_videos.py`. Only `mp4` videos
    are processed. The transcription helper `generador_audio.py` also only
    accepts MP4 input files.
+   Only videos recorded in the last 24 hours are considered for
+   transcription.
 2. Start the API server:
    ```bash
    python api_server.py 8000

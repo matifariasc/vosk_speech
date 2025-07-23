@@ -9,7 +9,7 @@ Para cada archivo se invoca ``generador_audio.procesar_audio_con_pausas`` y se
 almacena la lista de bloques devuelta. El resultado completo se guarda en
 ``transcripciones.json``. Si una entrada ya existe en el JSON, el video no se
 vuelve a procesar. Solo se procesan archivos cuya hora se encuentre dentro de
-las primeras 24 horas a partir del primer archivo pendiente encontrado.
+las 24 horas previas al momento de ejecución del script.
 """
 
 from __future__ import annotations
@@ -75,23 +75,28 @@ def formatear_bloques(bloques: list[dict]) -> str:
 
 
 
-def obtener_pendientes(carpeta: str, procesados: Dict[str, List[dict]]) -> list[str]:
-    """Devuelve la lista de archivos pendientes a procesar."""
 
-    todos = [os.path.join(carpeta, f) for f in os.listdir(carpeta) if f.endswith(".mp4")]
+def obtener_pendientes(carpeta: str, procesados: Dict[str, List[dict]]) -> list[str]:
+    """Devuelve la lista de archivos pendientes a procesar.
+
+    Solo se consideran aquellos cuya hora esté dentro de las últimas 24 horas
+    en relación al momento de ejecución del script.
+    """
+
+    todos = [
+        os.path.join(carpeta, f) for f in os.listdir(carpeta) if f.endswith(".mp4")
+    ]
     todos.sort()
 
-    pendientes = []
-    inicio = None
+    limite = datetime.now() - timedelta(hours=24)
+    pendientes: list[str] = []
     for archivo in todos:
         if archivo in procesados:
             continue
 
         hora_archivo = extraer_hora_desde_nombre(archivo)
-        if inicio is None:
-            inicio = hora_archivo
 
-        if hora_archivo - inicio < timedelta(hours=24):
+        if hora_archivo >= limite:
             pendientes.append(archivo)
 
     return pendientes
