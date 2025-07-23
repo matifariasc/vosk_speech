@@ -19,7 +19,13 @@ def extraer_hora_desde_nombre(nombre_archivo):
     return datetime.strptime(f"{fecha_str} {hora_str}", "%Y-%m-%d %H-%M-%S")
 
 def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
-    """Devuelve la transcripción en bloques con información de tiempo y medio."""
+    """Devuelve la transcripción en bloques con información de tiempo y medio.
+
+    Solo se admiten videos en formato MP4.
+    """
+
+    if os.path.splitext(archivo_video)[1].lower() != ".mp4":
+        raise ValueError("Solo se pueden procesar videos MP4")
 
     wav_temp = "temp.wav"
     subprocess.run(["ffmpeg", "-y", "-i", archivo_video, "-ar", "16000", "-ac", "1", "-f", "wav", wav_temp],
@@ -101,6 +107,6 @@ def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
 if __name__ == "__main__":
     import sys
     if len(sys.argv) != 2:
-        print("Uso: python generador_audio.py <video.mp4>")
+        print("Uso: python generador_audio.py <video.mp4>  # solo se aceptan MP4")
     else:
         procesar_audio_con_pausas(sys.argv[1])
