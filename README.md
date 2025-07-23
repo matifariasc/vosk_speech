@@ -6,7 +6,9 @@ the keys `inicio`, `fin`, `fecha`, `texto` and `medio`.
 
 ## Usage
 
-1. Generate transcriptions using `procesar_videos.py`.
+1. Generate transcriptions using `procesar_videos.py`. Only `mp4` videos
+   are processed. The transcription helper `generador_audio.py` also only
+   accepts MP4 input files.
 2. Start the API server:
    ```bash
    python api_server.py 8000
