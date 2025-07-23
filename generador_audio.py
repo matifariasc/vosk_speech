@@ -10,12 +10,13 @@ PAUSA_MAX = 0.5  # segundos para cortar frase
 def extraer_hora_desde_nombre(nombre_archivo):
     """Devuelve la fecha y hora como :class:`datetime` a partir del nombre."""
 
-    partes = os.path.basename(nombre_archivo).split("_")
-    fecha_str = partes[1]  # "YYYY-MM-DD"
-    hora_str = partes[2]  # "21-00-08.mp4"
-    return datetime.strptime(
-        f"{fecha_str} {hora_str.replace('.mp4', '')}", "%Y-%m-%d %H-%M-%S"
-    )
+    base, _ = os.path.splitext(os.path.basename(nombre_archivo))
+    partes = base.split("_")
+    if len(partes) < 3:
+        raise ValueError(f"Nombre de archivo invalido: {nombre_archivo}")
+    fecha_str = partes[1]
+    hora_str = partes[2]
+    return datetime.strptime(f"{fecha_str} {hora_str}", "%Y-%m-%d %H-%M-%S")
 
 def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
     """Devuelve la transcripción en bloques con información de tiempo y medio."""

@@ -39,9 +39,9 @@ def cargar_registro():
 def extraer_fecha(nombre_archivo: str) -> Optional[str]:
     """Devuelve la fecha (YYYY-MM-DD) extraída desde el nombre del archivo."""
 
-    base = os.path.basename(nombre_archivo)
+    base, _ = os.path.splitext(os.path.basename(nombre_archivo))
     partes = base.split("_")
-    if len(partes) >= 3:
+    if len(partes) >= 2:
         return partes[1]
     return None
 
