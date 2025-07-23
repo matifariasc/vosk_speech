@@ -2,7 +2,7 @@
 
 This repository contains utilities for processing videos with Vosk and serving
 transcriptions through a small HTTP API. Each transcription block now includes
-the keys `inicio`, `fin`, `fecha` and `texto`.
+the keys `inicio`, `fin`, `fecha`, `texto` and `medio`.
 
 ## Usage
 
@@ -12,7 +12,8 @@ the keys `inicio`, `fin`, `fecha` and `texto`.
    python api_server.py 8000
    ```
 3. Query the API. You can filter results by `fecha` (date) and `medio` (media
-   folder name). The server now returns clear error messages when
+   folder name). Each transcription block also records the `medio` it belongs
+   to. The server now returns clear error messages when
    `transcripciones.json` is missing or a video has no transcription.
    Example:
    ```

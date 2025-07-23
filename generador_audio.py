@@ -18,6 +18,8 @@ def extraer_hora_desde_nombre(nombre_archivo):
     )
 
 def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
+    """Devuelve la transcripción en bloques con información de tiempo y medio."""
+
     wav_temp = "temp.wav"
     subprocess.run(["ffmpeg", "-y", "-i", archivo_video, "-ar", "16000", "-ac", "1", "-f", "wav", wav_temp],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -29,6 +31,7 @@ def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
 
     hora_inicio = extraer_hora_desde_nombre(archivo_video)
     fecha = hora_inicio.strftime("%Y-%m-%d")
+    medio = os.path.basename(os.path.dirname(archivo_video))
     palabras = []
 
     while True:
@@ -63,6 +66,7 @@ def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
                         hora_inicio + timedelta(seconds=actual["fin"])
                     ).strftime("%H:%M:%S.%f")[:-3],
                     "fecha": fecha,
+                    "medio": medio,
                 }
                 bloques.append(bloque)
                 actual = {"inicio": start, "texto": ""}
@@ -82,6 +86,7 @@ def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
                     hora_inicio + timedelta(seconds=actual["fin"])
                 ).strftime("%H:%M:%S.%f")[:-3],
                 "fecha": fecha,
+                "medio": medio,
             }
         )
 
