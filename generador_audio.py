@@ -8,9 +8,14 @@ import os
 PAUSA_MAX = 0.5  # segundos para cortar frase
 
 def extraer_hora_desde_nombre(nombre_archivo):
+    """Devuelve la fecha y hora como :class:`datetime` a partir del nombre."""
+
     partes = os.path.basename(nombre_archivo).split("_")
-    hora_str = partes[2]  # "21-00-08"
-    return datetime.strptime(hora_str.replace(".mp4", ""), "%H-%M-%S")
+    fecha_str = partes[1]  # "YYYY-MM-DD"
+    hora_str = partes[2]  # "21-00-08.mp4"
+    return datetime.strptime(
+        f"{fecha_str} {hora_str.replace('.mp4', '')}", "%Y-%m-%d %H-%M-%S"
+    )
 
 def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
     wav_temp = "temp.wav"
@@ -23,6 +28,7 @@ def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
     rec.SetWords(True)
 
     hora_inicio = extraer_hora_desde_nombre(archivo_video)
+    fecha = hora_inicio.strftime("%Y-%m-%d")
     palabras = []
 
     while True:
@@ -50,8 +56,13 @@ def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
                 # Guardar bloque anterior
                 bloque = {
                     "texto": actual["texto"].strip(),
-                    "inicio": (hora_inicio + timedelta(seconds=actual["inicio"])).strftime("%H:%M:%S.%f")[:-3],
-                    "fin": (hora_inicio + timedelta(seconds=actual["fin"])).strftime("%H:%M:%S.%f")[:-3],
+                    "inicio": (
+                        hora_inicio + timedelta(seconds=actual["inicio"])
+                    ).strftime("%H:%M:%S.%f")[:-3],
+                    "fin": (
+                        hora_inicio + timedelta(seconds=actual["fin"])
+                    ).strftime("%H:%M:%S.%f")[:-3],
+                    "fecha": fecha,
                 }
                 bloques.append(bloque)
                 actual = {"inicio": start, "texto": ""}
@@ -61,11 +72,18 @@ def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
 
     # Agregar último bloque
     if actual["texto"].strip():
-        bloques.append({
-            "texto": actual["texto"].strip(),
-            "inicio": (hora_inicio + timedelta(seconds=actual["inicio"])).strftime("%H:%M:%S.%f")[:-3],
-            "fin": (hora_inicio + timedelta(seconds=actual["fin"])).strftime("%H:%M:%S.%f")[:-3],
-        })
+        bloques.append(
+            {
+                "texto": actual["texto"].strip(),
+                "inicio": (
+                    hora_inicio + timedelta(seconds=actual["inicio"])
+                ).strftime("%H:%M:%S.%f")[:-3],
+                "fin": (
+                    hora_inicio + timedelta(seconds=actual["fin"])
+                ).strftime("%H:%M:%S.%f")[:-3],
+                "fecha": fecha,
+            }
+        )
 
     os.remove(wav_temp)
 

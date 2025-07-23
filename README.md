@@ -1,7 +1,8 @@
 # Vosk Speech Transcription Tools
 
 This repository contains utilities for processing videos with Vosk and serving
-transcriptions through a small HTTP API.
+transcriptions through a small HTTP API. Each transcription block now includes
+the keys `inicio`, `fin`, `fecha` and `texto`.
 
 ## Usage
 
