@@ -12,7 +12,9 @@ the keys `inicio`, `fin`, `fecha` and `texto`.
    python api_server.py 8000
    ```
 3. Query the API. You can filter results by `fecha` (date) and `medio` (media
-   folder name). Example:
+   folder name). The server now returns clear error messages when
+   `transcripciones.json` is missing or a video has no transcription.
+   Example:
    ```
    http://localhost:8000/?fecha=2025-07-22&medio=Canal13
    ```
