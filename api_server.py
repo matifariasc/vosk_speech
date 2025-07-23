@@ -20,10 +20,20 @@ BASE_URL = "http://integra.ispaccess.conectamedia.cl:5232//Canal13/"
 
 
 def cargar_registro():
-    if os.path.exists(REGISTRO):
+    """Carga el archivo de transcripciones.
+
+    Returns a tuple ``(registro, error)``. ``registro`` contiene el diccionario
+    con las transcripciones o ``None`` si no se pudo cargar. ``error`` guarda un
+    mensaje descriptivo cuando ocurre un problema, en caso contrario es ``None``.
+    """
+
+    if not os.path.exists(REGISTRO):
+        return None, f"Archivo {REGISTRO} no existe"
+    try:
         with open(REGISTRO, "r", encoding="utf-8") as fh:
-            return json.load(fh)
-    return {}
+            return json.load(fh), None
+    except json.JSONDecodeError as exc:
+        return None, f"Error leyendo {REGISTRO}: {exc}"
 
 
 def extraer_fecha(nombre_archivo: str) -> Optional[str]:
@@ -52,17 +62,25 @@ class Handler(BaseHTTPRequestHandler):
         archivo = qs.get("file", [None])[0]
         filtro_fecha = qs.get("fecha", [None])[0]
         filtro_medio = qs.get("medio", [None])[0]
-        registro = cargar_registro()
+        registro, error = cargar_registro()
+        if error:
+            self.send_error(500, error)
+            return
         if archivo:
             datos = registro.get(archivo)
             if datos is None:
-                self.send_error(404, "Archivo no encontrado")
+                self.send_error(404, "Archivo no encontrado en el registro")
+                return
+            if not datos:
+                self.send_error(404, "Archivo sin transcripciones")
                 return
             respuesta = {
                 "file": archivo,
                 "url": BASE_URL + os.path.basename(archivo),
                 "registros": datos,
             }
+            if not os.path.exists(archivo):
+                respuesta["warning"] = "Archivo de video no encontrado"
         else:
             items = registro.items()
             if filtro_fecha:
