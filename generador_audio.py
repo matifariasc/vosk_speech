@@ -18,17 +18,18 @@ def extraer_hora_desde_nombre(nombre_archivo):
     hora_str = partes[2]
     return datetime.strptime(f"{fecha_str} {hora_str}", "%Y-%m-%d %H-%M-%S")
 
-def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
+def procesar_audio_con_pausas(archivo, modelo_path="vosk-model-es-0.42"):
     """Devuelve la transcripción en bloques con información de tiempo y medio.
 
-    Solo se admiten videos en formato MP4.
+    Se admiten archivos en formato MP4 y OGG.
     """
 
-    if os.path.splitext(archivo_video)[1].lower() != ".mp4":
-        raise ValueError("Solo se pueden procesar videos MP4")
+    extension = os.path.splitext(archivo)[1].lower()
+    if extension not in {".mp4", ".ogg"}:
+        raise ValueError("Solo se pueden procesar archivos MP4 u OGG")
 
     wav_temp = "temp.wav"
-    subprocess.run(["ffmpeg", "-y", "-i", archivo_video, "-ar", "16000", "-ac", "1", "-f", "wav", wav_temp],
+    subprocess.run(["ffmpeg", "-y", "-i", archivo, "-ar", "16000", "-ac", "1", "-f", "wav", wav_temp],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     wf = wave.open(wav_temp, "rb")
@@ -36,9 +37,9 @@ def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
     rec = KaldiRecognizer(model, wf.getframerate())
     rec.SetWords(True)
 
-    hora_inicio = extraer_hora_desde_nombre(archivo_video)
+    hora_inicio = extraer_hora_desde_nombre(archivo)
     fecha = hora_inicio.strftime("%Y-%m-%d")
-    medio = os.path.basename(os.path.dirname(archivo_video))
+    medio = os.path.basename(os.path.dirname(archivo))
     palabras = []
 
     while True:
@@ -107,6 +108,9 @@ def procesar_audio_con_pausas(archivo_video, modelo_path="vosk-model-es-0.42"):
 if __name__ == "__main__":
     import sys
     if len(sys.argv) != 2:
-        print("Uso: python generador_audio.py <video.mp4>  # solo se aceptan MP4")
+        print(
+            "Uso: python generador_audio.py <video.mp4|audio.ogg>  "
+            "# se aceptan MP4 y OGG"
+        )
     else:
         procesar_audio_con_pausas(sys.argv[1])
