@@ -7,7 +7,9 @@ forma::
 
 Para cada archivo se invoca ``generador_audio.procesar_audio_con_pausas`` y se
 almacena la lista de bloques devuelta. El resultado completo se guarda en
-``transcripciones.json``. Si una entrada ya existe en el JSON, el video no se
+``transcripciones_<canal>.json`` y los tiempos de procesamiento en
+``tiempos_procesamiento_<canal>.json``, donde ``<canal>`` corresponde al nombre
+de la carpeta procesada. Si una entrada ya existe en el JSON, el video no se
 vuelve a procesar. Solo se procesan archivos cuya hora se encuentre dentro de
 las 24 horas previas al momento de ejecución del script.
 """
@@ -25,12 +27,6 @@ from generador_audio import (
     procesar_audio_con_pausas,
     extraer_hora_desde_nombre,
 )
-
-
-
-REGISTRO = "transcripciones.json"
-REGISTRO_TIEMPOS = "tiempos_procesamiento.json"
-
 
 def cargar_registro(ruta: str) -> Dict[str, List[dict]]:
     """Carga el archivo JSON de registro si existe."""
@@ -103,8 +99,11 @@ def obtener_pendientes(carpeta: str, procesados: Dict[str, List[dict]]) -> list[
 
 
 def main(carpeta: str) -> None:
-    registro = cargar_registro(REGISTRO)
-    tiempos = cargar_tiempos(REGISTRO_TIEMPOS)
+    canal = os.path.basename(os.path.normpath(carpeta))
+    registro_archivo = f"transcripciones_{canal}.json"
+    tiempos_archivo = f"tiempos_procesamiento_{canal}.json"
+    registro = cargar_registro(registro_archivo)
+    tiempos = cargar_tiempos(tiempos_archivo)
     pendientes = obtener_pendientes(carpeta, registro)
 
     for archivo in pendientes:
@@ -113,8 +112,8 @@ def main(carpeta: str) -> None:
         duracion = perf_counter() - inicio
         registro[archivo] = bloques
         tiempos[archivo] = duracion
-        guardar_registro(registro, REGISTRO)
-        guardar_tiempos(tiempos, REGISTRO_TIEMPOS)
+        guardar_registro(registro, registro_archivo)
+        guardar_tiempos(tiempos, tiempos_archivo)
         print(f"Procesamiento de {archivo} completado en {duracion:.2f} segundos")
 
 

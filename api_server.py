@@ -1,8 +1,9 @@
 """Simple HTTP server that serves transcription data.
 
-The server reads ``transcripciones.json`` and exposes its contents over a
-REST-like API. Use optional ``fecha`` (``YYYY-MM-DD``) and ``medio`` query
-parameters to filter results by date and channel.
+The server reads all ``transcripciones_*.json`` files in the current directory
+and exposes their combined contents over a REST-like API. Use optional
+``fecha`` (``YYYY-MM-DD``) and ``medio`` query parameters to filter results by
+date and channel.
 
 Example::
 
@@ -15,25 +16,34 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 from typing import Optional
 
-REGISTRO = "transcripciones.json"
 BASE_URL = "http://integra.ispaccess.conectamedia.cl:5232//Canal13/"
 
 
-def cargar_registro():
-    """Carga el archivo de transcripciones.
+def cargar_registros():
+    """Carga y combina los archivos de transcripciones.
 
     Returns a tuple ``(registro, error)``. ``registro`` contiene el diccionario
-    con las transcripciones o ``None`` si no se pudo cargar. ``error`` guarda un
-    mensaje descriptivo cuando ocurre un problema, en caso contrario es ``None``.
+    con las transcripciones combinadas o ``None`` si no se pudieron cargar.
+    ``error`` guarda un mensaje descriptivo cuando ocurre un problema, en caso
+    contrario es ``None``.
     """
 
-    if not os.path.exists(REGISTRO):
-        return None, f"Archivo {REGISTRO} no existe"
-    try:
-        with open(REGISTRO, "r", encoding="utf-8") as fh:
-            return json.load(fh), None
-    except json.JSONDecodeError as exc:
-        return None, f"Error leyendo {REGISTRO}: {exc}"
+    archivos = [
+        f
+        for f in os.listdir()
+        if f.startswith("transcripciones") and f.endswith(".json")
+    ]
+    if not archivos:
+        return None, "No se encontraron archivos de transcripciones"
+    registro: dict[str, list[dict]] = {}
+    for archivo in archivos:
+        try:
+            with open(archivo, "r", encoding="utf-8") as fh:
+                datos = json.load(fh)
+        except json.JSONDecodeError as exc:
+            return None, f"Error leyendo {archivo}: {exc}"
+        registro.update(datos)
+    return registro, None
 
 
 def extraer_fecha(nombre_archivo: str) -> Optional[str]:
@@ -62,7 +72,7 @@ class Handler(BaseHTTPRequestHandler):
         archivo = qs.get("file", [None])[0]
         filtro_fecha = qs.get("fecha", [None])[0]
         filtro_medio = qs.get("medio", [None])[0]
-        registro, error = cargar_registro()
+        registro, error = cargar_registros()
         if error:
             self.send_error(500, error)
             return
