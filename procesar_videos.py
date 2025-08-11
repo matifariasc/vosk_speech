@@ -1,9 +1,9 @@
 """Procesa múltiples videos generando un archivo JSON con las transcripciones.
 
-El script recorre una carpeta que contiene archivos MP4 con un nombre de la
-forma::
+El script recorre una carpeta que contiene archivos MP4 u OGG con un nombre de
+la forma::
 
-   <id>_YYYY-MM-DD_HH-MM-SS.mp4
+   <id>_YYYY-MM-DD_HH-MM-SS.<ext>
 
 Para cada archivo se invoca ``generador_audio.procesar_audio_con_pausas`` y se
 almacena la lista de bloques devuelta. El resultado completo se guarda en
@@ -80,7 +80,9 @@ def obtener_pendientes(carpeta: str, procesados: Dict[str, List[dict]]) -> list[
     """
 
     todos = [
-        os.path.join(carpeta, f) for f in os.listdir(carpeta) if f.endswith(".mp4")
+        os.path.join(carpeta, f)
+        for f in os.listdir(carpeta)
+        if f.lower().endswith((".mp4", ".ogg"))
     ]
     todos.sort()
 
