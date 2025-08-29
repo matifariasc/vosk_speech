@@ -5,6 +5,7 @@ This guide sets up two services:
 - `vosk-api.service`: serves transcriptions over HTTP.
 - `vosk-multiprocessor.service` + `vosk-multiprocessor.timer`: runs the
   multi-channel processor periodically (skips newest file and processes up to 50).
+  Retention policy: keeps only the last 48 hours per channel.
 
 ## 1) Prerequisites
 
@@ -83,4 +84,3 @@ Notes:
 - Concurrency is controlled by `parallel` in the JSON (default 4).
 - The per-channel outputs remain `transcripciones_<canal>.json` in the app directory.
 - The API server merges all `transcripciones_*.json` files in its working directory.
-

@@ -11,13 +11,15 @@ the keys `inicio`, `fin`, `fecha`, `texto` and `medio`.
      it skips the newest file and processes from the second newest backwards.
    - Up to 50 files are considered per run, walking backwards in time.
    - Already processed files are skipped automatically.
+   - Retention: only the last 48 hours are kept per channel; older entries are
+     cleaned automatically when new items are processed.
 2. Start the API server:
    ```bash
    python api_server.py 8000
    ```
-3. Query the API. You can filter results by `fecha` (date) and `medio` (media
-   folder name). Each transcription block also records the `medio` it belongs
-   to. The server returns clear error messages when no
+3. Query the API. You can filter results by `fecha` (date), `medio` (media
+   folder name) and `hours` (time window, default 48). Each transcription block
+   records the `medio` it belongs to. The server returns clear error messages when no
    `transcripciones_*.json` files are found or a video has no transcription.
    Example:
    ```
@@ -25,3 +27,4 @@ the keys `inicio`, `fin`, `fecha`, `texto` and `medio`.
    ```
    This request returns all transcripts recorded on `2025-07-22` inside the
    `Canal13` folder.
+   API help: `http://localhost:8000/docs`

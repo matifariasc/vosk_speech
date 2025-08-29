@@ -2,21 +2,25 @@
 
 The server reads all ``transcripciones_*.json`` files in the current directory
 and exposes their combined contents over a REST-like API. Use optional
-``fecha`` (``YYYY-MM-DD``) and ``medio`` query parameters to filter results by
-date and channel.
+``fecha`` (``YYYY-MM-DD``), ``medio`` and ``hours`` query parameters to filter
+results by date, channel and time window (default: 48 hours).
 
 Example::
 
     http://localhost:8000/?fecha=2025-07-22&medio=Canal13
+    http://localhost:8000/?hours=48
+    http://localhost:8000/docs
 """
 
 import json
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
+from datetime import datetime, timedelta
 from typing import Optional
 
 BASE_URL = "http://integra.ispaccess.conectamedia.cl:5232//Canal13/"
+DEFAULT_HOURS = 48
 
 
 def cargar_registros():
@@ -62,9 +66,25 @@ def extraer_medio(ruta_archivo: str) -> str:
     return os.path.basename(os.path.dirname(ruta_archivo))
 
 
+def extraer_datetime(nombre_archivo: str) -> Optional[datetime]:
+    base, _ = os.path.splitext(os.path.basename(nombre_archivo))
+    partes = base.split("_")
+    if len(partes) >= 3:
+        fecha_str = partes[1]
+        hora_str = partes[2]
+        try:
+            return datetime.strptime(f"{fecha_str} {hora_str}", "%Y-%m-%d %H-%M-%S")
+        except ValueError:
+            return None
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/docs":
+            self._send_docs()
+            return
         if parsed.path != "/":
             self.send_error(404)
             return
@@ -72,6 +92,10 @@ class Handler(BaseHTTPRequestHandler):
         archivo = qs.get("file", [None])[0]
         filtro_fecha = qs.get("fecha", [None])[0]
         filtro_medio = qs.get("medio", [None])[0]
+        try:
+            filtro_horas = int(qs.get("hours", [DEFAULT_HOURS])[0])
+        except ValueError:
+            filtro_horas = DEFAULT_HOURS
         registro, error = cargar_registros()
         if error:
             self.send_error(500, error)
@@ -105,6 +129,13 @@ class Handler(BaseHTTPRequestHandler):
                     for k, v in items
                     if extraer_medio(k) == filtro_medio
                 ]
+            # Filtrar por ventana de horas (por defecto 48h)
+            limite = datetime.now() - timedelta(hours=filtro_horas)
+            items = [
+                (k, v)
+                for k, v in items
+                if (dt := extraer_datetime(k)) is not None and dt >= limite
+            ]
             respuesta = [
                 {
                     "file": k,
@@ -117,6 +148,34 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.end_headers()
         self.wfile.write(json.dumps(respuesta, ensure_ascii=False, indent=2).encode("utf-8"))
+
+    def _send_docs(self) -> None:
+        docs = {
+            "endpoints": {
+                "/": {
+                    "desc": "Lista transcripciones combinadas (por archivo)",
+                    "query": {
+                        "file": "Ruta exacta del archivo para obtener solo ese registro",
+                        "fecha": "YYYY-MM-DD para filtrar por día",
+                        "medio": "Nombre de la carpeta canal (p.ej. Canal13)",
+                        "hours": f"Ventana en horas (int), por defecto {DEFAULT_HOURS}",
+                    },
+                    "examples": [
+                        "/?medio=Canal13",
+                        "/?fecha=2025-07-22",
+                        "/?hours=24",
+                        "/?medio=Canal13&hours=12",
+                    ],
+                },
+                "/docs": {
+                    "desc": "Este documento de ayuda (JSON)",
+                },
+            }
+        }
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(json.dumps(docs, ensure_ascii=False, indent=2).encode("utf-8"))
 
 
 def run(port: int = 8000) -> None:

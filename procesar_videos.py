@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from time import perf_counter
 from typing import Dict, List
 
@@ -30,6 +30,9 @@ from generador_audio import (
     procesar_audio_con_pausas,
     extraer_hora_desde_nombre,
 )
+
+# Política de retención: mantener solo las últimas 48 horas por canal
+HOURS_TO_KEEP = 48
 
 def cargar_registro(ruta: str) -> Dict[str, List[dict]]:
     """Carga el archivo JSON de registro si existe."""
@@ -102,6 +105,27 @@ def obtener_pendientes(carpeta: str, procesados: Dict[str, List[dict]]) -> list[
     return pendientes
 
 
+def limpiar_registros_antiguos(registro: Dict[str, List[dict]],
+                               tiempos: Dict[str, float]) -> None:
+    """Elimina entradas más antiguas que ``HOURS_TO_KEEP`` de ambos diccionarios.
+
+    Modifica los diccionarios en sitio.
+    """
+    limite = datetime.now() - timedelta(hours=HOURS_TO_KEEP)
+    keys_a_borrar = []
+    for ruta in list(registro.keys()):
+        try:
+            hora_archivo = extraer_hora_desde_nombre(ruta)
+        except Exception:
+            continue
+        if hora_archivo < limite:
+            keys_a_borrar.append(ruta)
+
+    for k in keys_a_borrar:
+        registro.pop(k, None)
+        tiempos.pop(k, None)
+
+
 def main(carpeta: str) -> None:
     canal = os.path.basename(os.path.normpath(carpeta))
     registro_archivo = f"transcripciones_{canal}.json"
@@ -116,6 +140,8 @@ def main(carpeta: str) -> None:
         duracion = perf_counter() - inicio
         registro[archivo] = bloques
         tiempos[archivo] = duracion
+        # Limpiar entradas antiguas (retención 48h) antes de guardar
+        limpiar_registros_antiguos(registro, tiempos)
         guardar_registro(registro, registro_archivo)
         guardar_tiempos(tiempos, tiempos_archivo)
         print(f"Procesamiento de {archivo} completado en {duracion:.2f} segundos")
