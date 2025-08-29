@@ -1,7 +1,6 @@
 """Procesa múltiples videos generando un archivo JSON con las transcripciones.
 
-El script recorre una carpeta que contiene archivos MP4 u OGG con un nombre de
-la forma::
+El script recorre una carpeta que contiene archivos MP4 u OGG con nombre::
 
    <id>_YYYY-MM-DD_HH-MM-SS.<ext>
 
@@ -10,15 +9,19 @@ almacena la lista de bloques devuelta. El resultado completo se guarda en
 ``transcripciones_<canal>.json`` y los tiempos de procesamiento en
 ``tiempos_procesamiento_<canal>.json``, donde ``<canal>`` corresponde al nombre
 de la carpeta procesada. Si una entrada ya existe en el JSON, el video no se
-vuelve a procesar. Solo se procesan archivos cuya hora se encuentre dentro de
-las 24 horas previas al momento de ejecución del script.
+vuelve a procesar.
+
+Prioridad de procesamiento (modo "al día"):
+- Ordena por hora descendente (lo más reciente primero).
+- Omite el archivo más reciente (posible archivo en escritura).
+- Procesa desde la penúltima hacia atrás, hasta un máximo de 50 archivos.
 """
 
 from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from time import perf_counter
 from typing import Dict, List
 
@@ -73,30 +76,29 @@ def formatear_bloques(bloques: list[dict]) -> str:
 
 
 def obtener_pendientes(carpeta: str, procesados: Dict[str, List[dict]]) -> list[str]:
-    """Devuelve la lista de archivos pendientes a procesar.
+    """Devuelve la lista de archivos pendientes (más recientes primero).
 
-    Solo se consideran aquellos cuya hora esté dentro de las últimas 24 horas
-    en relación al momento de ejecución del script.
+    Lógica:
+    - Ordena por hora de archivo descendente (más reciente primero).
+    - Omite la pieza más reciente (índice 0) y toma las siguientes hasta 50.
+    - Filtra las que ya estén en ``procesados``.
     """
 
-    todos = [
-        os.path.join(carpeta, f)
-        for f in os.listdir(carpeta)
-        if f.lower().endswith((".mp4", ".ogg"))
-    ]
-    todos.sort()
-
-    limite = datetime.now() - timedelta(hours=24)
-    pendientes: list[str] = []
-    for archivo in todos:
-        if archivo in procesados:
+    candidatos: list[tuple[str, datetime]] = []
+    for f in os.listdir(carpeta):
+        if not f.lower().endswith((".mp4", ".ogg")):
             continue
+        ruta = os.path.join(carpeta, f)
+        try:
+            hora = extraer_hora_desde_nombre(ruta)
+        except Exception:
+            continue
+        candidatos.append((ruta, hora))
 
-        hora_archivo = extraer_hora_desde_nombre(archivo)
+    candidatos.sort(key=lambda x: x[1], reverse=True)
 
-        if hora_archivo >= limite:
-            pendientes.append(archivo)
-
+    seguros = [ruta for ruta, _ in candidatos[1:1 + 50]]
+    pendientes = [ruta for ruta in seguros if ruta not in procesados]
     return pendientes
 
 
@@ -127,4 +129,3 @@ if __name__ == "__main__":
         sys.exit(1)
 
     main(sys.argv[1])
-

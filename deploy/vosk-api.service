@@ -1,0 +1,17 @@
+[Unit]
+Description=Vosk Transcriptions API Server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/vosk_speech
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/vosk_speech/.venv/bin/python /opt/vosk_speech/api_server.py 8000
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+

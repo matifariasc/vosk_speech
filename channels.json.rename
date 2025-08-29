@@ -1,0 +1,11 @@
+{
+  "media_base": "/srv/media",
+  "channels": [
+    "Canal13",
+    "chv",
+    "mega",
+    "tvn"
+  ],
+  "parallel": 4
+}
+
