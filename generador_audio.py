@@ -4,6 +4,27 @@ import subprocess
 import json
 from datetime import datetime, timedelta
 import os
+import tempfile
+import threading
+
+_MODEL_CACHE = {}
+_MODEL_LOCK = threading.Lock()
+
+def _get_model(modelo_path: str) -> Model:
+    """Carga y cachea el modelo Vosk por proceso.
+
+    Evita recargar el modelo en cada archivo (costoso y verboso en logs).
+    """
+    m = _MODEL_CACHE.get(modelo_path)
+    if m is not None:
+        return m
+    # Evitar condiciones de carrera en carga inicial
+    with _MODEL_LOCK:
+        m = _MODEL_CACHE.get(modelo_path)
+        if m is None:
+            m = Model(modelo_path)
+            _MODEL_CACHE[modelo_path] = m
+        return m
 
 PAUSA_MAX = 0.5  # segundos para cortar frase
 
@@ -28,27 +49,50 @@ def procesar_audio_con_pausas(archivo, modelo_path="vosk-model-es-0.42"):
     if extension not in {".mp4", ".ogg"}:
         raise ValueError("Solo se pueden procesar archivos MP4 u OGG")
 
-    wav_temp = "temp.wav"
-    subprocess.run(["ffmpeg", "-y", "-i", archivo, "-ar", "16000", "-ac", "1", "-f", "wav", wav_temp],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    fd, wav_temp = tempfile.mkstemp(prefix="vosk_tmp_", suffix=".wav")
+    os.close(fd)
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                archivo,
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-f",
+                "wav",
+                wav_temp,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError("ffmpeg fallo al convertir a wav")
 
-    wf = wave.open(wav_temp, "rb")
-    model = Model(modelo_path)
-    rec = KaldiRecognizer(model, wf.getframerate())
-    rec.SetWords(True)
+        wf = wave.open(wav_temp, "rb")
+        try:
+            model = _get_model(modelo_path)
+            rec = KaldiRecognizer(model, wf.getframerate())
+            rec.SetWords(True)
+        except Exception:
+            wf.close()
+            raise
 
     hora_inicio = extraer_hora_desde_nombre(archivo)
     fecha = hora_inicio.strftime("%Y-%m-%d")
     medio = os.path.basename(os.path.dirname(archivo))
     palabras = []
 
-    while True:
-        data = wf.readframes(4000)
-        if len(data) == 0:
-            break
-        if rec.AcceptWaveform(data):
-            res = json.loads(rec.Result())
-            palabras.extend(res.get("result", []))
+        while True:
+            data = wf.readframes(4000)
+            if len(data) == 0:
+                break
+            if rec.AcceptWaveform(data):
+                res = json.loads(rec.Result())
+                palabras.extend(res.get("result", []))
 
     bloques = []
     actual = {"inicio": None, "fin": None, "texto": ""}
@@ -98,7 +142,17 @@ def procesar_audio_con_pausas(archivo, modelo_path="vosk-model-es-0.42"):
             }
         )
 
-    os.remove(wav_temp)
+    finally:
+        try:
+            # Cerrar si quedó abierto y limpiar temp
+            try:
+                wf.close()  # type: ignore[name-defined]
+            except Exception:
+                pass
+            if os.path.exists(wav_temp):
+                os.remove(wav_temp)
+        except Exception:
+            pass
 
     for b in bloques:
         print(f"[{b['inicio']} - {b['fin']}] {b['texto']}")
