@@ -3,11 +3,11 @@ Description=Run Vosk Multi-Channel Video Processor periodically
 
 [Timer]
 OnBootSec=30s
-OnUnitActiveSec=1min
+# Ejecuta 1 minuto DESPUES de que el servicio haya terminado la última vez
+OnUnitInactiveSec=1min
 AccuracySec=5s
 Persistent=true
 Unit=vosk-multiprocessor.service
 
 [Install]
 WantedBy=timers.target
-
