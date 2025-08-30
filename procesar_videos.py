@@ -13,8 +13,8 @@ vuelve a procesar.
 
 Prioridad de procesamiento (modo "al día"):
 - Ordena por hora descendente (lo más reciente primero).
-- Omite el archivo más reciente (posible archivo en escritura).
-- Procesa desde la penúltima hacia atrás, hasta un máximo de 50 archivos.
+- Omite SIEMPRE el archivo más reciente (posible escritura en curso).
+- Procesa uno por corrida: toma el siguiente más reciente (dentro de los últimos 50).
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timedelta
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import Dict, List
 
 
@@ -78,6 +78,29 @@ def formatear_bloques(bloques: list[dict]) -> str:
 
 
 
+def _esperar_archivo_estable(ruta: str, max_espera: int = 15, paso: int = 3) -> bool:
+    """Espera hasta que el archivo deje de crecer (tamaño estable).
+
+    Devuelve True si se estabilizó antes de `max_espera` segundos.
+    """
+    try:
+        size_prev = os.path.getsize(ruta)
+    except OSError:
+        return False
+    restante = max_espera
+    while restante > 0:
+        sleep(min(paso, restante))
+        restante -= paso
+        try:
+            size_now = os.path.getsize(ruta)
+        except OSError:
+            return False
+        if size_now == size_prev:
+            return True
+        size_prev = size_now
+    return False
+
+
 def obtener_pendientes(carpeta: str, procesados: Dict[str, List[dict]]) -> list[str]:
     """Devuelve la lista de archivos pendientes (más recientes primero).
 
@@ -100,9 +123,14 @@ def obtener_pendientes(carpeta: str, procesados: Dict[str, List[dict]]) -> list[
 
     candidatos.sort(key=lambda x: x[1], reverse=True)
 
-    seguros = [ruta for ruta, _ in candidatos[1:1 + 50]]
-    pendientes = [ruta for ruta in seguros if ruta not in procesados]
-    return pendientes
+    # Considerar solo los últimos 50, EXCLUYENDO el más reciente (índice 0)
+    top = [ruta for ruta, _ in candidatos[1:51]]
+    pendientes = [ruta for ruta in top if ruta not in procesados]
+
+    # Solo uno por corrida: devolver el más reciente entre los seguros
+    if pendientes:
+        return [pendientes[0]]
+    return []
 
 
 def limpiar_registros_antiguos(registro: Dict[str, List[dict]],
