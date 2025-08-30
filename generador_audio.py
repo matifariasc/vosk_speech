@@ -80,11 +80,11 @@ def procesar_audio_con_pausas(archivo, modelo_path="vosk-model-es-0.42"):
         except Exception:
             wf.close()
             raise
-
-    hora_inicio = extraer_hora_desde_nombre(archivo)
-    fecha = hora_inicio.strftime("%Y-%m-%d")
-    medio = os.path.basename(os.path.dirname(archivo))
-    palabras = []
+        
+        hora_inicio = extraer_hora_desde_nombre(archivo)
+        fecha = hora_inicio.strftime("%Y-%m-%d")
+        medio = os.path.basename(os.path.dirname(archivo))
+        palabras = []
 
         while True:
             data = wf.readframes(4000)
@@ -94,22 +94,42 @@ def procesar_audio_con_pausas(archivo, modelo_path="vosk-model-es-0.42"):
                 res = json.loads(rec.Result())
                 palabras.extend(res.get("result", []))
 
-    bloques = []
-    actual = {"inicio": None, "fin": None, "texto": ""}
+        bloques = []
+        actual = {"inicio": None, "fin": None, "texto": ""}
 
-    for i, palabra in enumerate(palabras):
-        start = palabra["start"]
-        end = palabra["end"]
-        word = palabra["word"]
+        for i, palabra in enumerate(palabras):
+            start = palabra["start"]
+            end = palabra["end"]
+            word = palabra["word"]
 
-        if actual["inicio"] is None:
-            actual["inicio"] = start
+            if actual["inicio"] is None:
+                actual["inicio"] = start
 
-        if i > 0:
-            pausa = start - palabras[i-1]["end"]
-            if pausa > PAUSA_MAX:
-                # Guardar bloque anterior
-                bloque = {
+            if i > 0:
+                pausa = start - palabras[i-1]["end"]
+                if pausa > PAUSA_MAX:
+                    # Guardar bloque anterior
+                    bloque = {
+                        "texto": actual["texto"].strip(),
+                        "inicio": (
+                            hora_inicio + timedelta(seconds=actual["inicio"])
+                        ).strftime("%H:%M:%S.%f")[:-3],
+                        "fin": (
+                            hora_inicio + timedelta(seconds=actual["fin"])
+                        ).strftime("%H:%M:%S.%f")[:-3],
+                        "fecha": fecha,
+                        "medio": medio,
+                    }
+                    bloques.append(bloque)
+                    actual = {"inicio": start, "texto": ""}
+
+            actual["texto"] += word + " "
+            actual["fin"] = end
+
+        # Agregar último bloque
+        if actual["texto"].strip():
+            bloques.append(
+                {
                     "texto": actual["texto"].strip(),
                     "inicio": (
                         hora_inicio + timedelta(seconds=actual["inicio"])
@@ -120,27 +140,7 @@ def procesar_audio_con_pausas(archivo, modelo_path="vosk-model-es-0.42"):
                     "fecha": fecha,
                     "medio": medio,
                 }
-                bloques.append(bloque)
-                actual = {"inicio": start, "texto": ""}
-
-        actual["texto"] += word + " "
-        actual["fin"] = end
-
-    # Agregar último bloque
-    if actual["texto"].strip():
-        bloques.append(
-            {
-                "texto": actual["texto"].strip(),
-                "inicio": (
-                    hora_inicio + timedelta(seconds=actual["inicio"])
-                ).strftime("%H:%M:%S.%f")[:-3],
-                "fin": (
-                    hora_inicio + timedelta(seconds=actual["fin"])
-                ).strftime("%H:%M:%S.%f")[:-3],
-                "fecha": fecha,
-                "medio": medio,
-            }
-        )
+            )
 
     finally:
         try:
