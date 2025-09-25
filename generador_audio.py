@@ -51,6 +51,8 @@ def procesar_audio_con_pausas(archivo, modelo_path="vosk-model-es-0.42"):
 
     fd, wav_temp = tempfile.mkstemp(prefix="vosk_tmp_", suffix=".wav")
     os.close(fd)
+    duracion_archivo_seg = 0.0
+    wf = None
     try:
         proc = subprocess.run(
             [
@@ -80,7 +82,8 @@ def procesar_audio_con_pausas(archivo, modelo_path="vosk-model-es-0.42"):
         except Exception:
             wf.close()
             raise
-        
+        duracion_archivo_seg = wf.getnframes() / float(wf.getframerate())
+
         hora_inicio = extraer_hora_desde_nombre(archivo)
         fecha = hora_inicio.strftime("%Y-%m-%d")
         medio = os.path.basename(os.path.dirname(archivo))
@@ -97,6 +100,23 @@ def procesar_audio_con_pausas(archivo, modelo_path="vosk-model-es-0.42"):
         bloques = []
         actual = {"inicio": None, "fin": None, "texto": ""}
 
+        def _crear_bloque(inicio_rel: float, fin_rel: float, texto: str) -> dict:
+            duracion_rel = round(fin_rel - inicio_rel, 3)
+            inicio_abs = (
+                hora_inicio + timedelta(seconds=inicio_rel)
+            ).strftime("%H:%M:%S.%f")[:-3]
+            fin_abs = (
+                hora_inicio + timedelta(seconds=fin_rel)
+            ).strftime("%H:%M:%S.%f")[:-3]
+            return {
+                "texto": texto.strip(),
+                "inicio": inicio_abs,
+                "fin": fin_abs,
+                "fecha": fecha,
+                "duracion": duracion_rel,
+                "medio": medio,
+            }
+
         for i, palabra in enumerate(palabras):
             start = palabra["start"]
             end = palabra["end"]
@@ -107,48 +127,29 @@ def procesar_audio_con_pausas(archivo, modelo_path="vosk-model-es-0.42"):
 
             if i > 0:
                 pausa = start - palabras[i-1]["end"]
-                if pausa > PAUSA_MAX:
-                    # Guardar bloque anterior
-                    bloque = {
-                        "texto": actual["texto"].strip(),
-                        "inicio": (
-                            hora_inicio + timedelta(seconds=actual["inicio"])
-                        ).strftime("%H:%M:%S.%f")[:-3],
-                        "fin": (
-                            hora_inicio + timedelta(seconds=actual["fin"])
-                        ).strftime("%H:%M:%S.%f")[:-3],
-                        "fecha": fecha,
-                        "medio": medio,
-                    }
-                    bloques.append(bloque)
-                    actual = {"inicio": start, "texto": ""}
+                if pausa > PAUSA_MAX and actual["fin"] is not None:
+                    bloques.append(
+                        _crear_bloque(actual["inicio"], actual["fin"], actual["texto"])
+                    )
+                    actual = {"inicio": start, "fin": None, "texto": ""}
 
-            actual["texto"] += word + " "
             actual["fin"] = end
+            actual["texto"] += word + " "
 
         # Agregar último bloque
-        if actual["texto"].strip():
+        if actual["texto"].strip() and actual["fin"] is not None:
             bloques.append(
-                {
-                    "texto": actual["texto"].strip(),
-                    "inicio": (
-                        hora_inicio + timedelta(seconds=actual["inicio"])
-                    ).strftime("%H:%M:%S.%f")[:-3],
-                    "fin": (
-                        hora_inicio + timedelta(seconds=actual["fin"])
-                    ).strftime("%H:%M:%S.%f")[:-3],
-                    "fecha": fecha,
-                    "medio": medio,
-                }
+                _crear_bloque(actual["inicio"], actual["fin"], actual["texto"])
             )
 
     finally:
         try:
             # Cerrar si quedó abierto y limpiar temp
-            try:
-                wf.close()  # type: ignore[name-defined]
-            except Exception:
-                pass
+            if wf is not None:
+                try:
+                    wf.close()
+                except Exception:
+                    pass
             if os.path.exists(wav_temp):
                 os.remove(wav_temp)
         except Exception:
@@ -157,7 +158,7 @@ def procesar_audio_con_pausas(archivo, modelo_path="vosk-model-es-0.42"):
     for b in bloques:
         print(f"[{b['inicio']} - {b['fin']}] {b['texto']}")
 
-    return bloques
+    return bloques, round(duracion_archivo_seg, 3)
 
 if __name__ == "__main__":
     import sys

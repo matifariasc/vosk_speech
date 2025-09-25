@@ -17,10 +17,77 @@ import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 BASE_URL = "http://integra.ispaccess.conectamedia.cl:5232//Canal13/"
 DEFAULT_HOURS = 48
+
+
+def _parse_datetime(fecha: str | None, hora: str | None) -> datetime | None:
+    if not fecha or not hora:
+        return None
+    try:
+        return datetime.strptime(f"{fecha} {hora}", "%Y-%m-%d %H:%M:%S.%f")
+    except ValueError:
+        return None
+
+
+def _ensure_block_duration(bloque: dict) -> None:
+    if "duracion" in bloque and bloque["duracion"] is not None:
+        return
+    inicio = _parse_datetime(bloque.get("fecha"), bloque.get("inicio"))
+    fin = _parse_datetime(bloque.get("fecha"), bloque.get("fin"))
+    if inicio and fin:
+        bloque["duracion"] = round((fin - inicio).total_seconds(), 3)
+    else:
+        bloque.setdefault("duracion", None)
+
+
+def _calculate_file_duration(registros: List[dict]) -> float | None:
+    if not registros:
+        return None
+    inicios = []
+    fines = []
+    for bloque in registros:
+        if not isinstance(bloque, dict):
+            continue
+        inicio = _parse_datetime(bloque.get("fecha"), bloque.get("inicio"))
+        fin = _parse_datetime(bloque.get("fecha"), bloque.get("fin"))
+        if inicio:
+            inicios.append(inicio)
+        if fin:
+            fines.append(fin)
+    if not inicios or not fines:
+        return None
+    duracion_total = (max(fines) - min(inicios)).total_seconds()
+    if duracion_total < 0:
+        return None
+    return round(duracion_total, 3)
+
+
+def _normalizar_entrada(entrada: Any) -> dict:
+    if isinstance(entrada, dict):
+        registros = entrada.get("registros", [])
+        if not isinstance(registros, list):
+            registros = []
+        entrada["registros"] = registros
+    elif isinstance(entrada, list):
+        registros = entrada
+        entrada = {"registros": registros}
+    else:
+        registros = []
+        entrada = {"registros": registros}
+
+    for bloque in registros:
+        if isinstance(bloque, dict):
+            _ensure_block_duration(bloque)
+
+    if entrada.get("duracion") is None:
+        entrada["duracion"] = _calculate_file_duration([
+            b for b in registros if isinstance(b, dict)
+        ])
+
+    return entrada
 
 
 def cargar_registros():
@@ -39,14 +106,17 @@ def cargar_registros():
     ]
     if not archivos:
         return None, "No se encontraron archivos de transcripciones"
-    registro: dict[str, list[dict]] = {}
+    registro: Dict[str, dict] = {}
     for archivo in archivos:
         try:
             with open(archivo, "r", encoding="utf-8") as fh:
                 datos = json.load(fh)
         except json.JSONDecodeError as exc:
             return None, f"Error leyendo {archivo}: {exc}"
-        registro.update(datos)
+        if not isinstance(datos, dict):
+            continue
+        for ruta, entrada in datos.items():
+            registro[ruta] = _normalizar_entrada(entrada)
     return registro, None
 
 
@@ -105,14 +175,15 @@ class Handler(BaseHTTPRequestHandler):
             if datos is None:
                 self.send_error(404, "Archivo no encontrado en el registro")
                 return
-            if not datos:
-                self.send_error(404, "Archivo sin transcripciones")
-                return
             respuesta = {
                 "file": archivo,
                 "url": BASE_URL + os.path.basename(archivo),
-                "registros": datos,
+                "duracion": datos.get("duracion"),
+                "registros": datos.get("registros", []),
             }
+            if not respuesta["registros"]:
+                self.send_error(404, "Archivo sin transcripciones")
+                return
             if not os.path.exists(archivo):
                 respuesta["warning"] = "Archivo de video no encontrado"
         else:
@@ -140,7 +211,8 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "file": k,
                     "url": BASE_URL + os.path.basename(k),
-                    "registros": v,
+                    "duracion": v.get("duracion"),
+                    "registros": v.get("registros", []),
                 }
                 for k, v in items
             ]

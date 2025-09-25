@@ -23,7 +23,7 @@ import json
 import os
 from datetime import datetime, timedelta
 from time import perf_counter, sleep
-from typing import Dict, List
+from typing import Any, Dict, List
 
 
 from generador_audio import (
@@ -34,16 +34,95 @@ from generador_audio import (
 # Política de retención: mantener solo las últimas 48 horas por canal
 HOURS_TO_KEEP = 48
 
-def cargar_registro(ruta: str) -> Dict[str, List[dict]]:
-    """Carga el archivo JSON de registro si existe."""
+
+def _parse_datetime(fecha: str | None, hora: str | None) -> datetime | None:
+    """Convierte fecha y hora en :class:`datetime` si es posible."""
+
+    if not fecha or not hora:
+        return None
+    try:
+        return datetime.strptime(f"{fecha} {hora}", "%Y-%m-%d %H:%M:%S.%f")
+    except ValueError:
+        return None
+
+
+def _asegurar_duracion_bloque(bloque: dict) -> None:
+    """Agrega la duración (s) al bloque si no existe."""
+
+    if "duracion" in bloque and bloque["duracion"] is not None:
+        return
+    inicio_dt = _parse_datetime(bloque.get("fecha"), bloque.get("inicio"))
+    fin_dt = _parse_datetime(bloque.get("fecha"), bloque.get("fin"))
+    if inicio_dt and fin_dt:
+        bloque["duracion"] = round((fin_dt - inicio_dt).total_seconds(), 3)
+    else:
+        bloque.setdefault("duracion", None)
+
+
+def _calcular_duracion_archivo(registros: List[dict]) -> float | None:
+    """Deriva la duración estimada del archivo a partir de los registros."""
+
+    if not registros:
+        return None
+    inicios: List[datetime] = []
+    fines: List[datetime] = []
+    for bloque in registros:
+        if not isinstance(bloque, dict):
+            continue
+        inicio_dt = _parse_datetime(bloque.get("fecha"), bloque.get("inicio"))
+        fin_dt = _parse_datetime(bloque.get("fecha"), bloque.get("fin"))
+        if inicio_dt:
+            inicios.append(inicio_dt)
+        if fin_dt:
+            fines.append(fin_dt)
+    if not inicios or not fines:
+        return None
+    duracion_total = (max(fines) - min(inicios)).total_seconds()
+    if duracion_total < 0:
+        return None
+    return round(duracion_total, 3)
+
+
+def _normalizar_entrada(entrada: Any) -> dict:
+    """Garantiza que cada entrada tenga ``duracion`` y ``registros``."""
+
+    if isinstance(entrada, dict):
+        registros = entrada.get("registros", [])
+        if not isinstance(registros, list):
+            registros = []
+        entrada["registros"] = registros
+    elif isinstance(entrada, list):
+        registros = entrada
+        entrada = {"registros": registros}
+    else:
+        registros = []
+        entrada = {"registros": registros}
+
+    for bloque in registros:
+        if isinstance(bloque, dict):
+            _asegurar_duracion_bloque(bloque)
+
+    if entrada.get("duracion") is None:
+        entrada["duracion"] = _calcular_duracion_archivo([
+            b for b in registros if isinstance(b, dict)
+        ])
+
+    return entrada
+
+
+
+def cargar_registro(ruta: str) -> Dict[str, dict]:
+    """Carga el archivo JSON de registro si existe y normaliza su formato."""
 
     if os.path.exists(ruta):
         with open(ruta, "r", encoding="utf-8") as fh:
-            return json.load(fh)
+            data = json.load(fh)
+        if isinstance(data, dict):
+            return {k: _normalizar_entrada(v) for k, v in data.items()}
     return {}
 
 
-def guardar_registro(registro: Dict[str, List[dict]], ruta: str) -> None:
+def guardar_registro(registro: Dict[str, dict], ruta: str) -> None:
     """Guarda el registro de transcripciones a disco."""
 
     with open(ruta, "w", encoding="utf-8") as fh:
@@ -101,7 +180,7 @@ def _esperar_archivo_estable(ruta: str, max_espera: int = 15, paso: int = 3) -> 
     return False
 
 
-def obtener_pendientes(carpeta: str, procesados: Dict[str, List[dict]]) -> list[str]:
+def obtener_pendientes(carpeta: str, procesados: Dict[str, dict]) -> list[str]:
     """Devuelve la lista de archivos pendientes (más recientes primero).
 
     Lógica:
@@ -133,7 +212,7 @@ def obtener_pendientes(carpeta: str, procesados: Dict[str, List[dict]]) -> list[
     return []
 
 
-def limpiar_registros_antiguos(registro: Dict[str, List[dict]],
+def limpiar_registros_antiguos(registro: Dict[str, dict],
                                tiempos: Dict[str, float]) -> None:
     """Elimina entradas más antiguas que ``HOURS_TO_KEEP`` de ambos diccionarios.
 
@@ -164,15 +243,22 @@ def main(carpeta: str) -> None:
 
     for archivo in pendientes:
         inicio = perf_counter()
-        bloques = procesar_audio_con_pausas(archivo)
-        duracion = perf_counter() - inicio
-        registro[archivo] = bloques
-        tiempos[archivo] = duracion
+        bloques, duracion_archivo = procesar_audio_con_pausas(archivo)
+        duracion_procesamiento = perf_counter() - inicio
+        registro[archivo] = _normalizar_entrada(
+            {
+                "duracion": duracion_archivo,
+                "registros": bloques,
+            }
+        )
+        tiempos[archivo] = duracion_procesamiento
         # Limpiar entradas antiguas (retención 48h) antes de guardar
         limpiar_registros_antiguos(registro, tiempos)
         guardar_registro(registro, registro_archivo)
         guardar_tiempos(tiempos, tiempos_archivo)
-        print(f"Procesamiento de {archivo} completado en {duracion:.2f} segundos")
+        print(
+            f"Procesamiento de {archivo} completado en {duracion_procesamiento:.2f} segundos"
+        )
 
 
 if __name__ == "__main__":
