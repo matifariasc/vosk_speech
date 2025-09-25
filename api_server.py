@@ -23,7 +23,7 @@ BASE_URL = "http://integra.ispaccess.conectamedia.cl:5232//Canal13/"
 DEFAULT_HOURS = 48
 
 
-def _parse_datetime(fecha: str | None, hora: str | None) -> datetime | None:
+def _parse_datetime(fecha: Optional[str], hora: Optional[str]) -> Optional[datetime]:
     if not fecha or not hora:
         return None
     try:
@@ -43,7 +43,7 @@ def _ensure_block_duration(bloque: dict) -> None:
         bloque.setdefault("duracion", None)
 
 
-def _calculate_file_duration(registros: List[dict]) -> float | None:
+def _calculate_file_duration(registros: List[dict]) -> Optional[float]:
     if not registros:
         return None
     inicios = []

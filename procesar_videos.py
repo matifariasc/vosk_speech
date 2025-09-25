@@ -23,7 +23,7 @@ import json
 import os
 from datetime import datetime, timedelta
 from time import perf_counter, sleep
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 from generador_audio import (
@@ -35,7 +35,7 @@ from generador_audio import (
 HOURS_TO_KEEP = 48
 
 
-def _parse_datetime(fecha: str | None, hora: str | None) -> datetime | None:
+def _parse_datetime(fecha: Optional[str], hora: Optional[str]) -> Optional[datetime]:
     """Convierte fecha y hora en :class:`datetime` si es posible."""
 
     if not fecha or not hora:
@@ -59,7 +59,7 @@ def _asegurar_duracion_bloque(bloque: dict) -> None:
         bloque.setdefault("duracion", None)
 
 
-def _calcular_duracion_archivo(registros: List[dict]) -> float | None:
+def _calcular_duracion_archivo(registros: List[dict]) -> Optional[float]:
     """Deriva la duración estimada del archivo a partir de los registros."""
 
     if not registros:
