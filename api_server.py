@@ -150,6 +150,18 @@ def extraer_datetime(nombre_archivo: str) -> Optional[datetime]:
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _write_json(self, payload: Any, status: int = 200) -> None:
+        body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, TimeoutError) as exc:
+            self.log_error("Client disconnected before response was sent: %r", exc)
+            self.close_connection = True
+
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/docs":
@@ -216,10 +228,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 for k, v in items
             ]
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(json.dumps(respuesta, ensure_ascii=False, indent=2).encode("utf-8"))
+        self._write_json(respuesta)
 
     def _send_docs(self) -> None:
         docs = {
@@ -244,10 +253,7 @@ class Handler(BaseHTTPRequestHandler):
                 },
             }
         }
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(json.dumps(docs, ensure_ascii=False, indent=2).encode("utf-8"))
+        self._write_json(docs)
 
 
 def run(port: int = 8000) -> None:
