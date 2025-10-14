@@ -202,8 +202,13 @@ def obtener_pendientes(carpeta: str, procesados: Dict[str, dict]) -> list[str]:
 
     candidatos.sort(key=lambda x: x[1], reverse=True)
 
-    # Considerar solo los últimos 50, EXCLUYENDO el más reciente (índice 0)
-    top = [ruta for ruta, _ in candidatos[1:51]]
+    # Si el más reciente es .ogg, se procesa; de lo contrario, se salta el primero.
+    start_idx = 0
+    if candidatos and not candidatos[0][0].lower().endswith(".ogg"):
+        start_idx = 1
+
+    # Considerar hasta los últimos 50 elementos a partir del índice calculado
+    top = [ruta for ruta, _ in candidatos[start_idx:start_idx + 50]]
     pendientes = [ruta for ruta in top if ruta not in procesados]
 
     # Solo uno por corrida: devolver el más reciente entre los seguros
