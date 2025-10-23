@@ -15,11 +15,11 @@ Example::
 import json
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-BASE_URL = "http://integra.ispaccess.conectamedia.cl:5232//Canal13/"
+BASE_URL = "http://integra.ispaccess.conectamedia.cl:5232/"
 DEFAULT_HOURS = 48
 
 
@@ -149,6 +149,13 @@ def extraer_datetime(nombre_archivo: str) -> Optional[datetime]:
     return None
 
 
+def _build_remote_url(ruta_archivo: str) -> str:
+    medio = extraer_medio(ruta_archivo)
+    filename = os.path.basename(ruta_archivo)
+    query = urlencode({"medio": medio, "file": filename})
+    return f"{BASE_URL}?{query}"
+
+
 class Handler(BaseHTTPRequestHandler):
     def _write_json(self, payload: Any, status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
@@ -189,7 +196,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             respuesta = {
                 "file": archivo,
-                "url": BASE_URL + os.path.basename(archivo),
+                "url": _build_remote_url(archivo),
                 "duracion": datos.get("duracion"),
                 "registros": datos.get("registros", []),
             }
@@ -227,7 +234,7 @@ class Handler(BaseHTTPRequestHandler):
             respuesta = [
                 {
                     "file": k,
-                    "url": BASE_URL + os.path.basename(k),
+                    "url": _build_remote_url(k),
                     "duracion": v.get("duracion"),
                     "registros": v.get("registros", []),
                 }
