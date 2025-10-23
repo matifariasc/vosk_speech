@@ -219,6 +219,11 @@ class Handler(BaseHTTPRequestHandler):
                 for k, v in items
                 if (dt := extraer_datetime(k)) is not None and dt >= limite
             ]
+            # Ordenar por fecha/hora (más recientes primero)
+            items.sort(
+                key=lambda item: extraer_datetime(item[0]) or datetime.min,
+                reverse=True,
+            )
             respuesta = [
                 {
                     "file": k,
