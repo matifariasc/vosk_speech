@@ -15,7 +15,7 @@ Example::
 import json
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse, parse_qs, urlencode
+from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -152,8 +152,9 @@ def extraer_datetime(nombre_archivo: str) -> Optional[datetime]:
 def _build_remote_url(ruta_archivo: str) -> str:
     medio = extraer_medio(ruta_archivo)
     filename = os.path.basename(ruta_archivo)
-    query = urlencode({"medio": medio, "file": filename})
-    return f"{BASE_URL}?{query}"
+    # Asegura un solo slash al unir base, medio y archivo
+    base = BASE_URL.rstrip("/")
+    return f"{base}/{medio}/{filename}"
 
 
 class Handler(BaseHTTPRequestHandler):
