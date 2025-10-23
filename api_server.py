@@ -19,7 +19,7 @@ from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-BASE_URL = "http://integra.ispaccess.conectamedia.cl:5232/"
+BASE_URL = "http://200.111.128.26:5212/"
 DEFAULT_HOURS = 48
 
 
