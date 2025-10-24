@@ -53,6 +53,7 @@ _load_env_file()
 
 BASE_URL = os.getenv("BASE_URL", "http://localhost:5212/")
 DEFAULT_HOURS = _get_int_env("DEFAULT_HOURS", 48)
+ORDER_DESC_VALUES = {"desc", "newest", "reciente"}
 
 
 def _parse_datetime(fecha: Optional[str], hora: Optional[str]) -> Optional[datetime]:
@@ -214,6 +215,8 @@ class Handler(BaseHTTPRequestHandler):
         archivo = qs.get("file", [None])[0]
         filtro_fecha = qs.get("fecha", [None])[0]
         filtro_medio = qs.get("medio", [None])[0]
+        order_param = (qs.get("order", [None])[0] or "").lower()
+        ordenar_desc = order_param in ORDER_DESC_VALUES
         try:
             filtro_horas = int(qs.get("hours", [DEFAULT_HOURS])[0])
         except ValueError:
@@ -259,10 +262,10 @@ class Handler(BaseHTTPRequestHandler):
                 for k, v in items
                 if (dt := extraer_datetime(k)) is not None and dt >= limite
             ]
-            # Ordenar por fecha/hora (más recientes primero)
+            # Ordenar por fecha/hora (más antiguos primero por defecto)
             items.sort(
                 key=lambda item: extraer_datetime(item[0]) or datetime.min,
-                reverse=True,
+                reverse=ordenar_desc,
             )
             respuesta = [
                 {
@@ -285,12 +288,18 @@ class Handler(BaseHTTPRequestHandler):
                         "fecha": "YYYY-MM-DD para filtrar por día",
                         "medio": "Nombre de la carpeta canal (p.ej. Canal13)",
                         "hours": f"Ventana en horas (int), por defecto {DEFAULT_HOURS}",
+                        "order": "Orden de los resultados (por defecto antiguos primero; usar 'newest' o 'reciente')",
                     },
                     "examples": [
                         "/?medio=Canal13",
                         "/?fecha=2025-07-22",
                         "/?hours=24",
                         "/?medio=Canal13&hours=12",
+                        "/?medio=Canal13&order=newest",
+                    ],
+                    "notes": [
+                        "Los resultados vienen ordenados por defecto desde el archivo más antiguo al más reciente.",
+                        "Agrega order=newest (o order=reciente) para invertir y ver primero los más nuevos.",
                     ],
                 },
                 "/docs": {
