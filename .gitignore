@@ -2,6 +2,7 @@
 temp.wav
 vosk-model-es-0.42/
 model/
+.env
 *.mp4
 *.wav
 *.json

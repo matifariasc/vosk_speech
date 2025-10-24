@@ -19,8 +19,40 @@ from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-BASE_URL = "http://200.111.128.26:5212/"
-DEFAULT_HOURS = 48
+
+def _load_env_file(path: str = ".env") -> None:
+    """Best-effort loader for simple KEY=VALUE lines in a .env file."""
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as env_file:
+            for raw_line in env_file:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                os.environ.setdefault(key, value)
+    except OSError:
+        # Ignore file access issues; fall back to process env defaults.
+        return
+
+
+def _get_int_env(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+_load_env_file()
+
+BASE_URL = os.getenv("BASE_URL", "http://localhost:5212/")
+DEFAULT_HOURS = _get_int_env("DEFAULT_HOURS", 48)
 
 
 def _parse_datetime(fecha: Optional[str], hora: Optional[str]) -> Optional[datetime]:
