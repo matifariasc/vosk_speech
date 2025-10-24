@@ -29,6 +29,7 @@ def _get_model(modelo_path: str) -> Model:
 PAUSA_MAX = 0.5  # segundos para cortar frase
 
 def extraer_hora_desde_nombre(nombre_archivo):
+    
     """Devuelve la fecha y hora como :class:`datetime` a partir del nombre."""
 
     base, _ = os.path.splitext(os.path.basename(nombre_archivo))
@@ -40,6 +41,7 @@ def extraer_hora_desde_nombre(nombre_archivo):
     return datetime.strptime(f"{fecha_str} {hora_str}", "%Y-%m-%d %H-%M-%S")
 
 def procesar_audio_con_pausas(archivo, modelo_path="vosk-model-es-0.42"):
+    print(f"Procesando archivo: {archivo}")
     """Devuelve la transcripción en bloques con información de tiempo y medio.
 
     Se admiten archivos en formato MP4 y OGG.
