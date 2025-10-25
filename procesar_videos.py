@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timedelta
+from pathlib import Path
 from time import perf_counter, sleep
 from typing import Any, Dict, List, Optional
 
@@ -30,6 +31,7 @@ from generador_audio import (
     procesar_audio_con_pausas,
     extraer_hora_desde_nombre,
 )
+import cuos_sender
 
 # Política de retención: mantener solo las últimas 48 horas por canal
 HOURS_TO_KEEP = 48
@@ -238,7 +240,7 @@ def limpiar_registros_antiguos(registro: Dict[str, dict],
         tiempos.pop(k, None)
 
 
-def main(carpeta: str) -> None:
+def main(carpeta: str, send_to_api: bool = False) -> None:
     canal = os.path.basename(os.path.normpath(carpeta))
     registro_archivo = f"transcripciones_{canal}.json"
     tiempos_archivo = f"tiempos_procesamiento_{canal}.json"
@@ -261,6 +263,19 @@ def main(carpeta: str) -> None:
         limpiar_registros_antiguos(registro, tiempos)
         guardar_registro(registro, registro_archivo)
         guardar_tiempos(tiempos, tiempos_archivo)
+        if send_to_api:
+            try:
+                enviados = cuos_sender.send_payloads(
+                    Path(registro_archivo),
+                    only_keys=[archivo],
+                )
+                print(
+                    f"CUOS: enviados {enviados} payload(s) para {archivo}"
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(
+                    f"CUOS: error al enviar payloads para {archivo}: {exc}"
+                )
         print(
             f"Procesamiento de {archivo} completado en {duracion_procesamiento:.2f} segundos"
         )

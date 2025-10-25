@@ -3,9 +3,14 @@
   "channels": [
     "Canal13",
     "chv",
-    "mega",
-    "tvn"
+    {
+      "name": "mega",
+      "send_to_api": 1
+    },
+    {
+      "name": "tvn",
+      "send_to_api": true
+    }
   ],
   "parallel": 4
 }
-

@@ -7,8 +7,43 @@ import os
 import tempfile
 import threading
 
+
+def _load_env_file(path: str = ".env") -> None:
+    """Populate os.environ with KEY=VALUE lines from a .env file if present."""
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as env_file:
+            for raw_line in env_file:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                os.environ.setdefault(key, value)
+    except OSError:
+        return
+
+
+_load_env_file()
+
+_DEV_FLAG = os.getenv("DEV", "").lower() in {"1", "true", "yes", "on"}
+_DEV_MODEL_PATH = os.getenv("DEV_VOSK_MODEL_PATH", "").strip()
+_OVERRIDE_MODEL_PATH = os.getenv("VOSK_MODEL_PATH", "").strip()
+
 _MODEL_CACHE = {}
 _MODEL_LOCK = threading.Lock()
+
+
+def _resolve_model_path(default_path: str) -> str:
+    """Devuelve la ruta efectiva del modelo según variables de entorno."""
+    if _DEV_FLAG and _DEV_MODEL_PATH:
+        return _DEV_MODEL_PATH
+    if _OVERRIDE_MODEL_PATH:
+        return _OVERRIDE_MODEL_PATH
+    return default_path
+
 
 def _get_model(modelo_path: str) -> Model:
     """Carga y cachea el modelo Vosk por proceso.
@@ -78,7 +113,13 @@ def procesar_audio_con_pausas(archivo, modelo_path="vosk-model-es-0.42"):
 
         wf = wave.open(wav_temp, "rb")
         try:
-            model = _get_model(modelo_path)
+            model_path = _resolve_model_path(modelo_path)
+            if not os.path.isdir(model_path):
+                raise FileNotFoundError(
+                    f"Modelo Vosk no encontrado en {model_path}. "
+                    "Revise DEV_VOSK_MODEL_PATH o VOSK_MODEL_PATH."
+                )
+            model = _get_model(model_path)
             rec = KaldiRecognizer(model, wf.getframerate())
             rec.SetWords(True)
         except Exception:

@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import procesar_videos as pv
 
@@ -35,24 +35,48 @@ def cargar_config(ruta: str) -> Dict[str, Any]:
     return cfg
 
 
-def procesar_canal(base: str, canal: str) -> str:
+def _normalizar_canales(raw: List[Any]) -> List[Tuple[str, bool]]:
+    """Convierte la configuración cruda en tuplas (nombre, send_to_api)."""
+    canales: List[Tuple[str, bool]] = []
+    for item in raw:
+        if isinstance(item, str):
+            canales.append((item, False))
+            continue
+        if isinstance(item, dict):
+            nombre = item.get("name") or item.get("channel") or item.get("medio")
+            if not nombre or not isinstance(nombre, str):
+                raise ValueError("Canal inválido: falta nombre en entrada de objeto")
+            valor = item.get("send_to_api")
+            if valor is None:
+                valor = item.get("cuos") or item.get("enviar")
+            canales.append((nombre, bool(valor)))
+            continue
+        raise ValueError("Entrada de canal debe ser string o dict con 'name'")
+    return canales
+
+
+def procesar_canal(base: str, canal: str, send_to_api: bool) -> str:
     carpeta = os.path.join(base, canal)
     if not os.path.isdir(carpeta):
         return f"Canal {canal}: carpeta no existe: {carpeta}"
-    pv.main(carpeta)
+    pv.main(carpeta, send_to_api=send_to_api)
     return f"Canal {canal}: OK"
 
 
 def main(config_path: str) -> None:
     cfg = cargar_config(config_path)
     base = cfg.get("media_base", "/srv/media")
-    canales: List[str] = cfg["channels"]
-    parallel = int(cfg.get("parallel", min(4, len(canales))))
-    parallel = max(1, min(parallel, len(canales)))
+    canales_cfg = _normalizar_canales(cfg["channels"])
+    nombres = [c[0] for c in canales_cfg]
+    parallel = int(cfg.get("parallel", min(4, len(canales_cfg))))
+    parallel = max(1, min(parallel, len(canales_cfg)))
 
-    print(f"Procesando {len(canales)} canales (parallel={parallel}) desde {base}")
+    print(f"Procesando {len(nombres)} canales (parallel={parallel}) desde {base}")
     with ThreadPoolExecutor(max_workers=parallel) as ex:
-        futs = {ex.submit(procesar_canal, base, c): c for c in canales}
+        futs = {
+            ex.submit(procesar_canal, base, canal, send): canal
+            for canal, send in canales_cfg
+        }
         for fut in as_completed(futs):
             canal = futs[fut]
             try:
@@ -72,4 +96,3 @@ if __name__ == "__main__":
         )
         raise SystemExit(1)
     main(cfg_path)
-

@@ -5,7 +5,8 @@ model/
 .env
 *.mp4
 *.wav
-*.json
-*.csv
+transcripciones_*.json
+tiempos_procesamiento_*.json
 __pycache__/
 *.pyc
+.venv/

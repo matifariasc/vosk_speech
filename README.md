@@ -28,3 +28,34 @@ the keys `inicio`, `fin`, `fecha`, `texto` and `medio`.
    This request returns all transcripts recorded on `2025-07-22` inside the
    `Canal13` folder.
    API help: `http://localhost:8000/docs`
+
+## Vosk model path
+
+By default the scripts look for the model inside `vosk-model-es-0.42/` relative
+to the project root. If your model lives elsewhere, set the environment
+variables in `.env`:
+
+- `DEV=true` together with `DEV_VOSK_MODEL_PATH=/abs/path/...` to point to a
+  local model only when running in development.
+- `VOSK_MODEL_PATH=/abs/path/...` to override the model location regardless of
+  the `DEV` flag.
+
+## CUOS API integration
+
+Set the environment variable `CUOS_ENDPOINT` in your `.env` file when you want
+to forward newly generated transcription blocks to the CUOS API. Mark the desired
+channels in `channels.json` using objects with a truthy `send_to_api` field:
+
+```json
+{
+  "media_base": "/srv/media",
+  "channels": [
+    "Canal13",
+    { "name": "tvn", "send_to_api": true }
+  ],
+  "parallel": 2
+}
+```
+
+Only channels flagged with `send_to_api` will post each new transcription entry,
+using a 5 second request timeout per payload.
