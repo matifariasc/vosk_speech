@@ -2,8 +2,10 @@
 
 The server reads all ``transcripciones_*.json`` files in the current directory
 and exposes their combined contents over a REST-like API. Use optional
-``fecha`` (``YYYY-MM-DD``), ``medio`` and ``hours`` query parameters to filter
-results by date, channel and time window (default: 48 hours).
+``fecha`` (``YYYY-MM-DD``), ``hora`` (``HH:MM[:SS]``), ``fechahora`` and range
+parameters (``fechahora_inicio``/``fechahora_fin`` o ``hora_inicio``/``hora_fin``)
+alongside ``medio`` and ``hours`` (ventana en horas, por defecto 48) to filtrar
+los resultados por día, instante o rangos completos.
 
 Example::
 
@@ -17,7 +19,7 @@ import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def _load_env_file(path: str = ".env") -> None:
@@ -54,15 +56,33 @@ _load_env_file()
 BASE_URL = os.getenv("BASE_URL", "http://localhost:5212/")
 DEFAULT_HOURS = _get_int_env("DEFAULT_HOURS", 48)
 ORDER_DESC_VALUES = {"desc", "newest", "reciente"}
+_DATETIME_FORMATS = (
+    "%Y-%m-%d %H:%M:%S.%f",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+)
+
+
+def _parse_datetime_string(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    # Permite tanto separador espacio como 'T'
+    normalized = cleaned.replace("T", " ")
+    for fmt in _DATETIME_FORMATS:
+        try:
+            return datetime.strptime(normalized, fmt)
+        except ValueError:
+            continue
+    return None
 
 
 def _parse_datetime(fecha: Optional[str], hora: Optional[str]) -> Optional[datetime]:
     if not fecha or not hora:
         return None
-    try:
-        return datetime.strptime(f"{fecha} {hora}", "%Y-%m-%d %H:%M:%S.%f")
-    except ValueError:
-        return None
+    return _parse_datetime_string(f"{fecha.strip()} {hora.strip()}")
 
 
 def _ensure_block_duration(bloque: dict) -> None:
@@ -182,6 +202,88 @@ def extraer_datetime(nombre_archivo: str) -> Optional[datetime]:
     return None
 
 
+def _get_block_bounds(
+    ruta_archivo: str, entrada: Dict[str, Any]
+) -> Tuple[Optional[datetime], Optional[datetime]]:
+    """Devuelve datetime inicio/fin aproximados para un archivo de transcripción."""
+
+    inicio_archivo = extraer_datetime(ruta_archivo)
+    duracion = entrada.get("duracion")
+    if isinstance(duracion, (int, float)):
+        duracion_seg = float(duracion)
+    else:
+        duracion_seg = None
+
+    if inicio_archivo and duracion_seg is not None:
+        return inicio_archivo, inicio_archivo + timedelta(seconds=duracion_seg)
+
+    registros = entrada.get("registros", []) or []
+    inicios: List[datetime] = []
+    fines: List[datetime] = []
+
+    for bloque in registros:
+        if not isinstance(bloque, dict):
+            continue
+        inicio = _parse_datetime(bloque.get("fecha"), bloque.get("inicio"))
+        fin = _parse_datetime(bloque.get("fecha"), bloque.get("fin"))
+        if inicio:
+            inicios.append(inicio)
+        if fin:
+            fines.append(fin)
+
+    inicio_est = inicio_archivo
+    if inicios:
+        inicio_min = min(inicios)
+        inicio_est = min(inicio_archivo, inicio_min) if inicio_archivo else inicio_min
+
+    fin_est: Optional[datetime] = None
+    if fines:
+        fin_est = max(fines)
+    elif inicio_est and duracion_seg is not None:
+        fin_est = inicio_est + timedelta(seconds=duracion_seg)
+
+    if inicio_est and fin_est and fin_est < inicio_est:
+        fin_est = None
+
+    return inicio_est, fin_est
+
+
+def _block_contains_datetime(ruta_archivo: str, entrada: Dict[str, Any], objetivo: datetime) -> bool:
+    """Indica si el bloque de transcripción cubre la fecha-hora indicada."""
+
+    inicio, fin = _get_block_bounds(ruta_archivo, entrada)
+    if not inicio:
+        return False
+    if fin:
+        return inicio <= objetivo <= fin
+    return objetivo >= inicio
+
+
+def _block_overlaps_range(
+    ruta_archivo: str,
+    entrada: Dict[str, Any],
+    inicio_rango: Optional[datetime],
+    fin_rango: Optional[datetime],
+) -> bool:
+    """Determina si el bloque se cruza con el rango solicitado."""
+
+    if inicio_rango is None and fin_rango is None:
+        return True
+    inicio, fin = _get_block_bounds(ruta_archivo, entrada)
+    if inicio is None:
+        return False
+    # Si no tenemos fin del bloque, asumimos que se extiende hacia adelante.
+    if fin is None:
+        if fin_rango is None:
+            return True
+        return inicio <= fin_rango
+    if inicio_rango is None:
+        return fin_rango >= inicio  # type: ignore[operator]
+    if fin_rango is None:
+        return inicio <= fin
+    return not (fin < inicio_rango or inicio > fin_rango)
+
+
 def _build_remote_url(ruta_archivo: str) -> str:
     medio = extraer_medio(ruta_archivo)
     filename = os.path.basename(ruta_archivo)
@@ -215,12 +317,94 @@ class Handler(BaseHTTPRequestHandler):
         archivo = qs.get("file", [None])[0]
         filtro_fecha = qs.get("fecha", [None])[0]
         filtro_medio = qs.get("medio", [None])[0]
+        filtro_hora = qs.get("hora", [None])[0]
+        filtro_fechahora = qs.get("fechahora", [None])[0]
+        filtro_fechahora_inicio = qs.get("fechahora_inicio", [None])[0]
+        filtro_fechahora_fin = qs.get("fechahora_fin", [None])[0]
+        filtro_hora_inicio = qs.get("hora_inicio", [None])[0]
+        filtro_hora_fin = qs.get("hora_fin", [None])[0]
+        filtro_fecha_fin = qs.get("fecha_fin", [None])[0]
         order_param = (qs.get("order", [None])[0] or "").lower()
         ordenar_desc = order_param in ORDER_DESC_VALUES
         try:
             filtro_horas = int(qs.get("hours", [DEFAULT_HOURS])[0])
         except ValueError:
             filtro_horas = DEFAULT_HOURS
+
+        objetivo_dt: Optional[datetime] = None
+        if filtro_fechahora:
+            objetivo_dt = _parse_datetime_string(filtro_fechahora)
+            if objetivo_dt is None:
+                self.send_error(
+                    400,
+                    "Formato de 'fechahora' inválido. Use YYYY-MM-DD HH:MM[:SS[.sss]]",
+                )
+                return
+        elif filtro_hora:
+            if not filtro_fecha:
+                self.send_error(400, "Debe proporcionar 'fecha' junto con 'hora'")
+                return
+            objetivo_dt = _parse_datetime(filtro_fecha, filtro_hora)
+            if objetivo_dt is None:
+                self.send_error(
+                    400,
+                    "Formato de 'hora' inválido. Use HH:MM, HH:MM:SS o HH:MM:SS.sss",
+                )
+                return
+
+        rango_inicio: Optional[datetime] = None
+        if filtro_fechahora_inicio:
+            rango_inicio = _parse_datetime_string(filtro_fechahora_inicio)
+            if rango_inicio is None:
+                self.send_error(
+                    400,
+                    "Formato de 'fechahora_inicio' inválido. Use YYYY-MM-DD HH:MM[:SS[.sss]]",
+                )
+                return
+        elif filtro_hora_inicio:
+            if not filtro_fecha:
+                self.send_error(
+                    400,
+                    "Debe proporcionar 'fecha' cuando utiliza 'hora_inicio'",
+                )
+                return
+            rango_inicio = _parse_datetime(filtro_fecha, filtro_hora_inicio)
+            if rango_inicio is None:
+                self.send_error(
+                    400,
+                    "Formato de 'hora_inicio' inválido. Use HH:MM, HH:MM:SS o HH:MM:SS.sss",
+                )
+                return
+
+        rango_fin: Optional[datetime] = None
+        if filtro_fechahora_fin:
+            rango_fin = _parse_datetime_string(filtro_fechahora_fin)
+            if rango_fin is None:
+                self.send_error(
+                    400,
+                    "Formato de 'fechahora_fin' inválido. Use YYYY-MM-DD HH:MM[:SS[.sss]]",
+                )
+                return
+        elif filtro_hora_fin:
+            fecha_para_fin = filtro_fecha_fin or filtro_fecha
+            if not fecha_para_fin:
+                self.send_error(
+                    400,
+                    "Debe proporcionar 'fecha' o 'fecha_fin' cuando utiliza 'hora_fin'",
+                )
+                return
+            rango_fin = _parse_datetime(fecha_para_fin, filtro_hora_fin)
+            if rango_fin is None:
+                self.send_error(
+                    400,
+                    "Formato de 'hora_fin' inválido. Use HH:MM, HH:MM:SS o HH:MM:SS.sss",
+                )
+                return
+
+        if rango_inicio and rango_fin and rango_inicio > rango_fin:
+            self.send_error(400, "'fechahora_inicio' debe ser anterior a 'fechahora_fin'")
+            return
+
         registro, error = cargar_registros()
         if error:
             self.send_error(500, error)
@@ -229,6 +413,12 @@ class Handler(BaseHTTPRequestHandler):
             datos = registro.get(archivo)
             if datos is None:
                 self.send_error(404, "Archivo no encontrado en el registro")
+                return
+            if objetivo_dt and not _block_contains_datetime(archivo, datos, objetivo_dt):
+                self.send_error(404, "El archivo no contiene la fecha y hora solicitadas")
+                return
+            if (rango_inicio or rango_fin) and not _block_overlaps_range(archivo, datos, rango_inicio, rango_fin):
+                self.send_error(404, "El archivo no intersecta con el rango solicitado")
                 return
             respuesta = {
                 "file": archivo,
@@ -262,6 +452,24 @@ class Handler(BaseHTTPRequestHandler):
                 for k, v in items
                 if (dt := extraer_datetime(k)) is not None and dt >= limite
             ]
+            if objetivo_dt:
+                items = [
+                    (k, v)
+                    for k, v in items
+                    if _block_contains_datetime(k, v, objetivo_dt)
+                ]
+                if not items:
+                    self.send_error(404, "No se encontró un bloque para la fecha y hora indicadas")
+                    return
+            if rango_inicio or rango_fin:
+                items = [
+                    (k, v)
+                    for k, v in items
+                    if _block_overlaps_range(k, v, rango_inicio, rango_fin)
+                ]
+                if not items:
+                    self.send_error(404, "No se encontraron bloques en el rango indicado")
+                    return
             # Ordenar por fecha/hora (más antiguos primero por defecto)
             items.sort(
                 key=lambda item: extraer_datetime(item[0]) or datetime.min,
@@ -286,6 +494,13 @@ class Handler(BaseHTTPRequestHandler):
                     "query": {
                         "file": "Ruta exacta del archivo para obtener solo ese registro",
                         "fecha": "YYYY-MM-DD para filtrar por día",
+                        "hora": "HH:MM[:SS] para traer el bloque que cubre esa hora (requiere 'fecha')",
+                        "fechahora": "YYYY-MM-DD HH:MM[:SS] para apuntar a un bloque usando un solo parámetro",
+                        "fechahora_inicio": "Inicio del rango en formato YYYY-MM-DD HH:MM[:SS]",
+                        "fechahora_fin": "Fin del rango en formato YYYY-MM-DD HH:MM[:SS]",
+                        "hora_inicio": "HH:MM[:SS] como inicio del rango (requiere 'fecha')",
+                        "hora_fin": "HH:MM[:SS] como fin del rango (requiere 'fecha' o 'fecha_fin')",
+                        "fecha_fin": "Permite indicar un día distinto para 'hora_fin'",
                         "medio": "Nombre de la carpeta canal (p.ej. Canal13)",
                         "hours": f"Ventana en horas (int), por defecto {DEFAULT_HOURS}",
                         "order": "Orden de los resultados (por defecto antiguos primero; usar 'newest' o 'reciente')",
@@ -296,10 +511,16 @@ class Handler(BaseHTTPRequestHandler):
                         "/?hours=24",
                         "/?medio=Canal13&hours=12",
                         "/?medio=Canal13&order=newest",
+                        "/?fecha=2025-10-24&hora=13:00:00",
+                        "/?fechahora=2025-10-24T13:00:00",
+                        "/?fecha=2025-10-24&hora_inicio=13:00&hora_fin=14:00",
+                        "/?fechahora_inicio=2025-10-24 12:50&fechahora_fin=2025-10-24 13:10",
                     ],
                     "notes": [
                         "Los resultados vienen ordenados por defecto desde el archivo más antiguo al más reciente.",
                         "Agrega order=newest (o order=reciente) para invertir y ver primero los más nuevos.",
+                        "Combina fecha y hora para recuperar directamente el bloque que cubre ese instante.",
+                        "Cuando uses 'hora_inicio' o 'hora_fin' incluye también 'fecha' (y 'fecha_fin' si corresponde).",
                     ],
                 },
                 "/docs": {
