@@ -14,7 +14,7 @@ vuelve a procesar.
 Prioridad de procesamiento (modo "al día"):
 - Ordena por hora descendente (lo más reciente primero).
 - Omite SIEMPRE el archivo más reciente (posible escritura en curso).
-- Procesa uno por corrida: toma el siguiente más reciente (dentro de los últimos 50).
+- Procesa uno por corrida: toma el más atrasado dentro de los últimos 15 seguros.
 """
 
 from __future__ import annotations
@@ -35,6 +35,7 @@ import cuos_sender
 
 # Política de retención: mantener solo las últimas 48 horas por canal
 HOURS_TO_KEEP = 48
+PENDING_WINDOW = 15
 
 
 def _parse_datetime(fecha: Optional[str], hora: Optional[str]) -> Optional[datetime]:
@@ -187,7 +188,7 @@ def obtener_pendientes(carpeta: str, procesados: Dict[str, dict]) -> list[str]:
 
     Lógica:
     - Ordena por hora de archivo descendente (más reciente primero).
-    - Omite la pieza más reciente (índice 0) y toma las siguientes hasta 50.
+    - Omite la pieza más reciente (índice 0) y toma las siguientes hasta 15.
     - Filtra las que ya estén en ``procesados``.
     """
 
@@ -209,13 +210,13 @@ def obtener_pendientes(carpeta: str, procesados: Dict[str, dict]) -> list[str]:
     if candidatos and not candidatos[0][0].lower().endswith(".ogg"):
         start_idx = 1
 
-    # Considerar hasta los últimos 50 elementos a partir del índice calculado
-    top = [ruta for ruta, _ in candidatos[start_idx:start_idx + 50]]
+    # Considerar hasta los últimos PENDING_WINDOW elementos a partir del índice calculado
+    top = [ruta for ruta, _ in candidatos[start_idx:start_idx + PENDING_WINDOW]]
     pendientes = [ruta for ruta in top if ruta not in procesados]
 
-    # Solo uno por corrida: devolver el más reciente entre los seguros
+    # Solo uno por corrida: devolver el más atrasado dentro de los seguros
     if pendientes:
-        return [pendientes[0]]
+        return [pendientes[-1]]
     return []
 
 
