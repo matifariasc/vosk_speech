@@ -12,5 +12,6 @@
       "send_to_api": true
     }
   ],
-  "parallel": 4
+  "parallel": 4,
+  "loop_minutes": 5
 }

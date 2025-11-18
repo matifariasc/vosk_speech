@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+from queue import Queue
+from threading import Thread
 from typing import Any, Dict, List, Tuple
 
 import procesar_videos as pv
@@ -63,6 +65,56 @@ def procesar_canal(base: str, canal: str, send_to_api: bool) -> str:
     return f"Canal {canal}: OK"
 
 
+def procesar_en_cola(
+    base: str, canales_cfg: List[Tuple[str, bool]], parallel: int, loop_minutes: float
+) -> None:
+    """Ejecuta con cola FIFO estilo worker-pool.
+
+    Encola todos los canales en orden y va agregando nuevamente el listado completo
+    cada ``loop_minutes``. Si ``loop_minutes`` es 0, procesa solo una vuelta.
+    """
+
+    cola: Queue = Queue()
+
+    def worker() -> None:
+        while True:
+            item = cola.get()
+            if item is None:
+                cola.task_done()
+                break
+            ciclo, idx = item  # idx solo para preservar el orden de llegada
+            canal, send = canales_cfg[idx]
+            try:
+                msg = procesar_canal(base, canal, send)
+            except Exception as e:  # noqa: BLE001
+                msg = f"Canal {canal}: ERROR: {e}"
+            print(f"[ciclo {ciclo}] {msg}")
+            cola.task_done()
+
+    threads = [Thread(target=worker, daemon=True) for _ in range(parallel)]
+    for t in threads:
+        t.start()
+
+    ciclo = 0
+    try:
+        while True:
+            ciclo += 1
+            for idx in range(len(canales_cfg)):
+                cola.put((ciclo, idx))
+            if loop_minutes <= 0:
+                break
+            time.sleep(loop_minutes * 60)
+    except KeyboardInterrupt:
+        print("Interrumpido; esperando a que terminen trabajos en curso...")
+    finally:
+        # Esperamos que se drene la cola antes de apagar los workers
+        cola.join()
+        for _ in threads:
+            cola.put(None)
+        for t in threads:
+            t.join()
+
+
 def main(config_path: str) -> None:
     cfg = cargar_config(config_path)
     base = cfg.get("media_base", "/srv/media")
@@ -70,20 +122,12 @@ def main(config_path: str) -> None:
     nombres = [c[0] for c in canales_cfg]
     parallel = int(cfg.get("parallel", min(4, len(canales_cfg))))
     parallel = max(1, min(parallel, len(canales_cfg)))
+    loop_minutes = float(cfg.get("loop_minutes", 0))
 
-    print(f"Procesando {len(nombres)} canales (parallel={parallel}) desde {base}")
-    with ThreadPoolExecutor(max_workers=parallel) as ex:
-        futs = {
-            ex.submit(procesar_canal, base, canal, send): canal
-            for canal, send in canales_cfg
-        }
-        for fut in as_completed(futs):
-            canal = futs[fut]
-            try:
-                msg = fut.result()
-            except Exception as e:  # noqa: BLE001
-                msg = f"Canal {canal}: ERROR: {e}"
-            print(msg)
+    print(
+        f"Procesando {len(nombres)} canales (parallel={parallel}, loop_minutes={loop_minutes}) desde {base}"
+    )
+    procesar_en_cola(base, canales_cfg, parallel, loop_minutes)
 
 
 if __name__ == "__main__":
