@@ -23,7 +23,7 @@ import json
 import os
 import time
 from queue import Queue
-from threading import Thread
+from threading import Lock, Thread
 from typing import Any, Dict, List, Tuple
 
 import procesar_videos as pv
@@ -75,6 +75,8 @@ def procesar_en_cola(
     """
 
     cola: Queue = Queue()
+    lock = Lock()
+    busy_count = 0
 
     def worker() -> None:
         while True:
@@ -84,11 +86,22 @@ def procesar_en_cola(
                 break
             ciclo, idx = item  # idx solo para preservar el orden de llegada
             canal, send = canales_cfg[idx]
+            with lock:
+                # Contamos el worker como ocupado
+                nonlocal busy_count
+                busy_count += 1
+                ocupados = busy_count
+                libres = max(0, parallel - ocupados)
+            print(f"[ciclo {ciclo}] INICIO {canal} (ocupados={ocupados}, libres={libres})")
             try:
                 msg = procesar_canal(base, canal, send)
             except Exception as e:  # noqa: BLE001
                 msg = f"Canal {canal}: ERROR: {e}"
-            print(f"[ciclo {ciclo}] {msg}")
+            with lock:
+                busy_count -= 1
+                ocupados = busy_count
+                libres = max(0, parallel - ocupados)
+            print(f"[ciclo {ciclo}] {msg} (ocupados={ocupados}, libres={libres})")
             cola.task_done()
 
     threads = [Thread(target=worker, daemon=True) for _ in range(parallel)]
