@@ -21,10 +21,12 @@ from __future__ import annotations
 
 import json
 import os
+import fcntl
 from datetime import datetime, timedelta
 from pathlib import Path
 from time import perf_counter, sleep
 from typing import Any, Dict, List, Optional
+from contextlib import contextmanager
 
 
 from generador_audio import (
@@ -36,6 +38,35 @@ import cuos_sender
 # Política de retención: mantener solo las últimas 48 horas por canal
 HOURS_TO_KEEP = 48
 PENDING_WINDOW = 6
+
+
+@contextmanager
+def _lock_archivo(ruta: str):
+    """Lock exclusivo por archivo para evitar doble procesamiento en paralelo."""
+
+    lock_path = f"{ruta}.lock"
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        # No se pudo tomar el lock, otro hilo/proceso lo tiene
+        yield False
+        return
+
+    try:
+        os.ftruncate(fd, 0)
+        os.write(fd, str(os.getpid()).encode())
+        yield True
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+            try:
+                os.remove(lock_path)
+            except OSError:
+                pass
 
 
 def _parse_datetime(fecha: Optional[str], hora: Optional[str]) -> Optional[datetime]:
@@ -190,6 +221,7 @@ def obtener_pendientes(carpeta: str, procesados: Dict[str, dict]) -> list[str]:
     - Ordena por hora de archivo descendente (más reciente primero).
     - Omite la pieza más reciente (índice 0) y toma las siguientes hasta 15.
     - Filtra las que ya estén en ``procesados``.
+    - Devuelve la lista (más antiguos al final) para intentar la siguiente si un lock falla.
     """
 
     candidatos: list[tuple[str, datetime]] = []
@@ -214,10 +246,8 @@ def obtener_pendientes(carpeta: str, procesados: Dict[str, dict]) -> list[str]:
     top = [ruta for ruta, _ in candidatos[start_idx:start_idx + PENDING_WINDOW]]
     pendientes = [ruta for ruta in top if ruta not in procesados]
 
-    # Solo uno por corrida: devolver el más atrasado dentro de los seguros
-    if pendientes:
-        return [pendientes[-1]]
-    return []
+    # Devolver en orden de más seguro/antiguo a más reciente dentro de la ventana
+    return pendientes[::-1]
 
 
 def limpiar_registros_antiguos(registro: Dict[str, dict],
@@ -250,36 +280,41 @@ def main(carpeta: str, send_to_api: bool = False) -> None:
     pendientes = obtener_pendientes(carpeta, registro)
 
     for archivo in pendientes:
-        inicio = perf_counter()
-        bloques, duracion_archivo = procesar_audio_con_pausas(archivo)
-        duracion_procesamiento = perf_counter() - inicio
-        registro[archivo] = _normalizar_entrada(
-            {
-                "duracion": duracion_archivo,
-                "registros": bloques,
-            }
-        )
-        tiempos[archivo] = duracion_procesamiento
-        # Limpiar entradas antiguas (retención 48h) antes de guardar
-        limpiar_registros_antiguos(registro, tiempos)
-        guardar_registro(registro, registro_archivo)
-        guardar_tiempos(tiempos, tiempos_archivo)
-        if send_to_api:
-            try:
-                enviados = cuos_sender.send_payloads(
-                    Path(registro_archivo),
-                    only_keys=[archivo],
-                )
-                print(
-                    f"CUOS: enviados {enviados} payload(s) para {archivo}"
-                )
-            except Exception as exc:  # noqa: BLE001
-                print(
-                    f"CUOS: error al enviar payloads para {archivo}: {exc}"
-                )
-        print(
-            f"Procesamiento de {archivo} completado en {duracion_procesamiento:.2f} segundos"
-        )
+        with _lock_archivo(archivo) as locked:
+            if not locked:
+                print(f"Saltando {archivo}: otro hilo/proceso ya lo está procesando")
+                continue
+
+            inicio = perf_counter()
+            bloques, duracion_archivo = procesar_audio_con_pausas(archivo)
+            duracion_procesamiento = perf_counter() - inicio
+            registro[archivo] = _normalizar_entrada(
+                {
+                    "duracion": duracion_archivo,
+                    "registros": bloques,
+                }
+            )
+            tiempos[archivo] = duracion_procesamiento
+            # Limpiar entradas antiguas (retención 48h) antes de guardar
+            limpiar_registros_antiguos(registro, tiempos)
+            guardar_registro(registro, registro_archivo)
+            guardar_tiempos(tiempos, tiempos_archivo)
+            if send_to_api:
+                try:
+                    enviados = cuos_sender.send_payloads(
+                        Path(registro_archivo),
+                        only_keys=[archivo],
+                    )
+                    print(
+                        f"CUOS: enviados {enviados} payload(s) para {archivo}"
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    print(
+                        f"CUOS: error al enviar payloads para {archivo}: {exc}"
+                    )
+            print(
+                f"Procesamiento de {archivo} completado en {duracion_procesamiento:.2f} segundos"
+            )
 
 
 if __name__ == "__main__":
