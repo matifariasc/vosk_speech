@@ -134,7 +134,7 @@ def main(config_path: str) -> None:
     canales_cfg = _normalizar_canales(cfg["channels"])
     nombres = [c[0] for c in canales_cfg]
     parallel = int(cfg.get("parallel", min(4, len(canales_cfg))))
-    parallel = max(1, min(parallel, len(canales_cfg)))
+    parallel = max(1, parallel)  # permitir más hilos que canales, quedan en espera
     loop_minutes = float(cfg.get("loop_minutes", 0))
 
     print(
