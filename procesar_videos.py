@@ -35,7 +35,7 @@ import cuos_sender
 
 # Política de retención: mantener solo las últimas 48 horas por canal
 HOURS_TO_KEEP = 48
-PENDING_WINDOW = 15
+PENDING_WINDOW = 6
 
 
 def _parse_datetime(fecha: Optional[str], hora: Optional[str]) -> Optional[datetime]:
