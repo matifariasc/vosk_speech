@@ -56,6 +56,7 @@ _load_env_file()
 BASE_URL = os.getenv("BASE_URL", "http://localhost:5212/")
 DEFAULT_HOURS = _get_int_env("DEFAULT_HOURS", 48)
 ORDER_DESC_VALUES = {"desc", "newest", "reciente"}
+TEXT_MARGIN_SECONDS = 0.5
 _DATETIME_FORMATS = (
     "%Y-%m-%d %H:%M:%S.%f",
     "%Y-%m-%d %H:%M:%S",
@@ -284,6 +285,80 @@ def _block_overlaps_range(
     return not (fin < inicio_rango or inicio > fin_rango)
 
 
+def _get_record_bounds(bloque: Dict[str, Any]) -> Tuple[Optional[datetime], Optional[datetime]]:
+    """Devuelve datetime inicio/fin de un registro."""
+
+    inicio = _parse_datetime(bloque.get("fecha"), bloque.get("inicio"))
+    fin = _parse_datetime(bloque.get("fecha"), bloque.get("fin"))
+    if fin is None and inicio and isinstance(bloque.get("duracion"), (int, float)):
+        fin = inicio + timedelta(seconds=float(bloque["duracion"]))
+    return inicio, fin
+
+
+def _record_overlaps_range(
+    bloque: Dict[str, Any],
+    inicio_rango: Optional[datetime],
+    fin_rango: Optional[datetime],
+    margen_segundos: float = TEXT_MARGIN_SECONDS,
+) -> bool:
+    """Determina si el registro se cruza con el rango solicitado."""
+
+    inicio, fin = _get_record_bounds(bloque)
+    if inicio is None and fin is None:
+        return False
+    if inicio is None:
+        inicio = fin
+    if fin is None:
+        fin = inicio
+    margen = timedelta(seconds=margen_segundos)
+    inicio_rango = inicio_rango - margen if inicio_rango else None
+    fin_rango = fin_rango + margen if fin_rango else None
+    if inicio_rango and fin_rango:
+        return not (fin < inicio_rango or inicio > fin_rango)
+    if inicio_rango:
+        return fin >= inicio_rango
+    if fin_rango:
+        return inicio <= fin_rango
+    return True
+
+
+def _collect_text(
+    items: List[Tuple[str, dict]],
+    objetivo_dt: Optional[datetime],
+    rango_inicio: Optional[datetime],
+    rango_fin: Optional[datetime],
+) -> Tuple[str, int]:
+    """Concatena los textos de los registros filtrados por rango."""
+
+    seleccionados: List[Tuple[datetime, int, str]] = []
+    orden_seq = 0
+    for _, entrada in items:
+        registros = entrada.get("registros", []) or []
+        for bloque in registros:
+            if not isinstance(bloque, dict):
+                continue
+            if objetivo_dt:
+                if not _record_overlaps_range(bloque, objetivo_dt, objetivo_dt):
+                    continue
+            elif rango_inicio or rango_fin:
+                if not _record_overlaps_range(bloque, rango_inicio, rango_fin):
+                    continue
+            texto = bloque.get("texto")
+            if texto is None:
+                continue
+            if not isinstance(texto, str):
+                texto = str(texto)
+            texto = texto.strip()
+            if not texto:
+                continue
+            inicio, fin = _get_record_bounds(bloque)
+            orden_dt = inicio or fin or datetime.min
+            seleccionados.append((orden_dt, orden_seq, texto))
+            orden_seq += 1
+    seleccionados.sort(key=lambda item: (item[0], item[1]))
+    return " ".join(texto for _, _, texto in seleccionados).strip(), len(seleccionados)
+
+
 def _build_remote_url(ruta_archivo: str) -> str:
     medio = extraer_medio(ruta_archivo)
     filename = os.path.basename(ruta_archivo)
@@ -324,6 +399,7 @@ class Handler(BaseHTTPRequestHandler):
         filtro_hora_inicio = qs.get("hora_inicio", [None])[0]
         filtro_hora_fin = qs.get("hora_fin", [None])[0]
         filtro_fecha_fin = qs.get("fecha_fin", [None])[0]
+        text_only = "text" in qs or "texto" in qs
         order_param = (qs.get("order", [None])[0] or "").lower()
         ordenar_desc = order_param in ORDER_DESC_VALUES
         try:
@@ -420,6 +496,18 @@ class Handler(BaseHTTPRequestHandler):
             if (rango_inicio or rango_fin) and not _block_overlaps_range(archivo, datos, rango_inicio, rango_fin):
                 self.send_error(404, "El archivo no intersecta con el rango solicitado")
                 return
+            if text_only:
+                texto, total = _collect_text(
+                    [(archivo, datos)],
+                    objetivo_dt,
+                    rango_inicio,
+                    rango_fin,
+                )
+                if total == 0 or not texto:
+                    self.send_error(404, "No se encontraron registros en el rango indicado")
+                    return
+                self._write_json({"texto": texto})
+                return
             respuesta = {
                 "file": archivo,
                 "url": _build_remote_url(archivo),
@@ -467,9 +555,21 @@ class Handler(BaseHTTPRequestHandler):
                     for k, v in items
                     if _block_overlaps_range(k, v, rango_inicio, rango_fin)
                 ]
-                if not items:
-                    self.send_error(404, "No se encontraron bloques en el rango indicado")
+            if not items:
+                self.send_error(404, "No se encontraron bloques en el rango indicado")
+                return
+            if text_only:
+                texto, total = _collect_text(
+                    items,
+                    objetivo_dt,
+                    rango_inicio,
+                    rango_fin,
+                )
+                if total == 0 or not texto:
+                    self.send_error(404, "No se encontraron registros en el rango indicado")
                     return
+                self._write_json({"texto": texto})
+                return
             # Ordenar por fecha/hora (más antiguos primero por defecto)
             items.sort(
                 key=lambda item: extraer_datetime(item[0]) or datetime.min,
@@ -504,6 +604,7 @@ class Handler(BaseHTTPRequestHandler):
                         "medio": "Nombre de la carpeta canal (p.ej. Canal13)",
                         "hours": f"Ventana en horas (int), por defecto {DEFAULT_HOURS}",
                         "order": "Orden de los resultados (por defecto antiguos primero; usar 'newest' o 'reciente')",
+                        "text": "Si está presente, devuelve un solo texto concatenado del rango solicitado",
                     },
                     "examples": [
                         "/?medio=Canal13",
@@ -515,12 +616,14 @@ class Handler(BaseHTTPRequestHandler):
                         "/?fechahora=2025-10-24T13:00:00",
                         "/?fecha=2025-10-24&hora_inicio=13:00&hora_fin=14:00",
                         "/?fechahora_inicio=2025-10-24 12:50&fechahora_fin=2025-10-24 13:10",
+                        "/?fecha=2025-10-24&hora_inicio=13:00&hora_fin=14:00&medio=Canal13&text",
                     ],
                     "notes": [
                         "Los resultados vienen ordenados por defecto desde el archivo más antiguo al más reciente.",
                         "Agrega order=newest (o order=reciente) para invertir y ver primero los más nuevos.",
                         "Combina fecha y hora para recuperar directamente el bloque que cubre ese instante.",
                         "Cuando uses 'hora_inicio' o 'hora_fin' incluye también 'fecha' (y 'fecha_fin' si corresponde).",
+                        "Cuando uses 'text', el filtro de rango incluye un margen de 1 segundo.",
                     ],
                 },
                 "/docs": {
