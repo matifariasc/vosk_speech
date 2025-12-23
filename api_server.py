@@ -388,7 +388,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path != "/":
             self.send_error(404)
             return
-        qs = parse_qs(parsed.query)
+        qs = parse_qs(parsed.query, keep_blank_values=True)
         archivo = qs.get("file", [None])[0]
         filtro_fecha = qs.get("fecha", [None])[0]
         filtro_medio = qs.get("medio", [None])[0]
