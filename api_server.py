@@ -359,6 +359,65 @@ def _collect_text(
     return " ".join(texto for _, _, texto in seleccionados).strip(), len(seleccionados)
 
 
+def _collect_simple_records(
+    items: List[Tuple[str, dict]],
+    objetivo_dt: Optional[datetime],
+    rango_inicio: Optional[datetime],
+    rango_fin: Optional[datetime],
+) -> List[Dict[str, str]]:
+    """Devuelve registros filtrados en formato simple: texto, inicio, fecha."""
+
+    seleccionados: List[Tuple[datetime, int, Dict[str, str]]] = []
+    orden_seq = 0
+    for _, entrada in items:
+        registros = entrada.get("registros", []) or []
+        for bloque in registros:
+            if not isinstance(bloque, dict):
+                continue
+            if objetivo_dt:
+                if not _record_overlaps_range(bloque, objetivo_dt, objetivo_dt):
+                    continue
+            elif rango_inicio or rango_fin:
+                if not _record_overlaps_range(bloque, rango_inicio, rango_fin):
+                    continue
+
+            texto = bloque.get("texto")
+            if texto is None:
+                continue
+            if not isinstance(texto, str):
+                texto = str(texto)
+            texto = texto.strip()
+            if not texto:
+                continue
+
+            inicio_str = bloque.get("inicio")
+            fecha_str = bloque.get("fecha")
+            if not isinstance(inicio_str, str):
+                inicio_str = "" if inicio_str is None else str(inicio_str)
+            if not isinstance(fecha_str, str):
+                fecha_str = "" if fecha_str is None else str(fecha_str)
+            inicio_str = inicio_str.strip()
+            fecha_str = fecha_str.strip()
+
+            inicio_dt, fin_dt = _get_record_bounds(bloque)
+            orden_dt = inicio_dt or fin_dt or datetime.min
+            seleccionados.append(
+                (
+                    orden_dt,
+                    orden_seq,
+                    {
+                        "texto": texto,
+                        "inicio": inicio_str,
+                        "fecha": fecha_str,
+                    },
+                )
+            )
+            orden_seq += 1
+
+    seleccionados.sort(key=lambda item: (item[0], item[1]))
+    return [registro for _, _, registro in seleccionados]
+
+
 def _build_remote_url(ruta_archivo: str) -> str:
     medio = extraer_medio(ruta_archivo)
     filename = os.path.basename(ruta_archivo)
@@ -400,12 +459,16 @@ class Handler(BaseHTTPRequestHandler):
         filtro_hora_fin = qs.get("hora_fin", [None])[0]
         filtro_fecha_fin = qs.get("fecha_fin", [None])[0]
         text_only = "text" in qs or "texto" in qs
+        json_only = "json" in qs
         order_param = (qs.get("order", [None])[0] or "").lower()
         ordenar_desc = order_param in ORDER_DESC_VALUES
         try:
             filtro_horas = int(qs.get("hours", [DEFAULT_HOURS])[0])
         except ValueError:
             filtro_horas = DEFAULT_HOURS
+        if text_only and json_only:
+            self.send_error(400, "Use solo uno de estos flags: 'text' o 'json'")
+            return
 
         objetivo_dt: Optional[datetime] = None
         if filtro_fechahora:
@@ -508,6 +571,18 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 self._write_json({"texto": texto})
                 return
+            if json_only:
+                registros_simple = _collect_simple_records(
+                    [(archivo, datos)],
+                    objetivo_dt,
+                    rango_inicio,
+                    rango_fin,
+                )
+                if not registros_simple:
+                    self.send_error(404, "No se encontraron registros en el rango indicado")
+                    return
+                self._write_json(registros_simple)
+                return
             respuesta = {
                 "file": archivo,
                 "url": _build_remote_url(archivo),
@@ -570,6 +645,18 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 self._write_json({"texto": texto})
                 return
+            if json_only:
+                registros_simple = _collect_simple_records(
+                    items,
+                    objetivo_dt,
+                    rango_inicio,
+                    rango_fin,
+                )
+                if not registros_simple:
+                    self.send_error(404, "No se encontraron registros en el rango indicado")
+                    return
+                self._write_json(registros_simple)
+                return
             # Ordenar por fecha/hora (más antiguos primero por defecto)
             items.sort(
                 key=lambda item: extraer_datetime(item[0]) or datetime.min,
@@ -605,6 +692,7 @@ class Handler(BaseHTTPRequestHandler):
                         "hours": f"Ventana en horas (int), por defecto {DEFAULT_HOURS}",
                         "order": "Orden de los resultados (por defecto antiguos primero; usar 'newest' o 'reciente')",
                         "text": "Si está presente, devuelve un solo texto concatenado del rango solicitado",
+                        "json": "Si está presente, devuelve una lista plana con {texto, inicio, fecha}",
                     },
                     "examples": [
                         "/?medio=Canal13",
@@ -617,6 +705,7 @@ class Handler(BaseHTTPRequestHandler):
                         "/?fecha=2025-10-24&hora_inicio=13:00&hora_fin=14:00",
                         "/?fechahora_inicio=2025-10-24 12:50&fechahora_fin=2025-10-24 13:10",
                         "/?fecha=2025-10-24&hora_inicio=13:00&hora_fin=14:00&medio=Canal13&text",
+                        "/?fecha=2025-10-24&hora_inicio=13:00&hora_fin=14:00&medio=Canal13&json",
                     ],
                     "notes": [
                         "Los resultados vienen ordenados por defecto desde el archivo más antiguo al más reciente.",
@@ -624,6 +713,7 @@ class Handler(BaseHTTPRequestHandler):
                         "Combina fecha y hora para recuperar directamente el bloque que cubre ese instante.",
                         "Cuando uses 'hora_inicio' o 'hora_fin' incluye también 'fecha' (y 'fecha_fin' si corresponde).",
                         "Cuando uses 'text', el filtro de rango incluye un margen de 1 segundo.",
+                        "Cuando uses 'json', el filtro de rango usa la misma lógica que 'text'.",
                     ],
                 },
                 "/docs": {
